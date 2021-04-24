@@ -18,6 +18,7 @@
 #include <sstream>
 #include <vector>
 #include <memory>
+#include <assert.h>
 
 
 class Thing
@@ -164,272 +165,210 @@ class LevelGeometry : public Thing
 public:
     LevelGeometry()
         : Thing()
-        , slicePosition(0)
-        , playerPosition(sliceWidth + sliceWidth / 2 + sliceHeight)
+        , playerPosition(static_cast<float>(sliceWidth + sliceWidth / 2 + sliceHeight))
         , playerColor({ 45,227,191,255 })
+        , playerSlice(10.0f)
     {
         geom.resize(numSlices);
         for (int ii = 0; ii < numSlices; ++ii) {
             geom[ii].resize(sliceSize);
-            unsigned char sliceVal = 0;
-            if (ii % 20 == 0) {
-                sliceVal = 255;
+            //sliceVal = (ii % 10 == 0) ? (((jj % 10) < 7) ? 0 : 255) : 0;
+            for (int jj = 0; jj < sliceSize; ++jj) {
+                unsigned char sliceVal = 0;
+                if ((ii % 20 == 0) && (jj > 1) && (jj != (sliceSize - 2))) {
+                //if ((ii % 20 == 0) && (jj%7 == 0)) {
+                //if (ii % 20 == 0 && jj%2) {
+                    sliceVal = 255;
+                }
+                geom[ii][jj] = sliceVal;
             }
-            for (int jj = 0; jj < sliceSize; jj++) {
-                geom[ii][jj] = (ii % 10 == 0) ? (((jj % 10)<7) ? 0 : 255) : 0;
+        }
+        
+        worldGeom.resize(geom.size() + 1);
+        for (size_t ii = 0; ii < worldGeom.size(); ++ii) {
+            std::vector<Vector3>& worldSlice = worldGeom[ii];
+            worldSlice.resize(sliceSize + 1);
+            for (size_t jj = 0; jj < worldSlice.size(); ++jj) {
+                worldSlice[jj] = toWorld(static_cast<float>(ii), jj);
             }
         }
     }
 
-    void incrPlayerPosition(int val) {
-        const int modulo = 2 * sliceWidth + 2 * sliceHeight;
-        playerPosition = (playerPosition + modulo + val) % modulo;
+    virtual void doRender() override;
+
+    void incrPlayerPosition(float val) {
+        const float modulo = static_cast<float>(2 * sliceWidth + 2 * sliceHeight);
+        playerPosition = fmodf(playerPosition + modulo + val, modulo);
     }
 
-    inline void drawTopSquare(const Vector2& a11, const Vector2& a22, const Vector2& aDelta,
-        const Vector2& b11, const Vector2& b22, const Vector2& bDelta,
-        const float t1, const float t2,
-        const Color& color) {
+    const int numSlices = 3000;
+    const int sliceWidth = 80;
+    const int sliceHeight = 60;
+    //const int sliceWidth = 80;
+    //const int sliceHeight = 60;
+    const int sliceSize = sliceWidth * 2 + sliceHeight * 2;
+    Color playerColor;
 
-        Vector2 p11 = { b11.x + t1 * bDelta.x, b11.y };
-        Vector2 p12 = { b11.x + t2 * bDelta.x, b11.y };
-        Vector2 p21 = { a11.x + t1 * aDelta.x, a11.y };
-        Vector2 p22 = { a11.x + t2 * aDelta.x, a11.y };
-        DrawTriangle(p11, p21, p22, color);
-        DrawTriangle(p11, p22, p12, color);
+    // grid space
+    std::vector< std::vector<unsigned char> > geom;
+    float playerSlice; // which slice the player is on
+    float playerPosition; // position on slice
+
+    // items in world space
+    const float                         worldWidth = static_cast<float>(400);
+    const float                         worldHeight = static_cast<float>(300);
+    std::vector< std::vector<Vector3> > worldGeom; // position of top-left point of each geom pixel; includes extra row/element to bake end 
+
+
+
+  private:
+      // convert image slice/index into slice to a point; gives left-top most world point of element
+      Vector3 toWorld(float slice, int index) {
+          // ensure index in range
+          int modulo = sliceSize;
+          while (index < 0) {
+              index += modulo; // yikes
+          }
+          index = index % modulo;
+
+          const float fSliceWidth = static_cast<float>(sliceWidth);
+          const float fSliceHeight = static_cast<float>(sliceHeight);
+          if (index < sliceWidth) {
+              float t1 = float(index) / fSliceWidth;
+              return(Vector3{ worldWidth * t1, 0.0f, slice });
+          }
+
+          index -= sliceWidth;
+          if (index < sliceHeight) {
+              float t1 = float(index) / fSliceHeight;
+              return(Vector3{ worldWidth, worldHeight * t1, slice });
+          }
+
+          index -= sliceHeight;
+          if (index < sliceWidth) {
+              float t1 = 1.0f - float(index) / fSliceWidth;
+              return(Vector3{ worldWidth * t1, worldHeight, slice });
+          }
+
+          index -= sliceWidth;
+          float t1 = 1.0f - float(index) / fSliceHeight;
+          return(Vector3{ 0, worldHeight * t1, slice });
+      }
+
+      Vector3 toWorldFloat(float slice, float index) {
+          float index1 = floorf(index);
+          float t = index - index1;
+          int index1Int = static_cast<int>(index1);
+
+          Vector3 p0 = toWorld(slice, index1Int);
+          Vector3 p1 = toWorld(slice, index1Int+1);
+          return Vector3Lerp(p0, p1, t);
+      }
+
+      Vector2 toScreen(const Vector3& world, float sliceAtCenter, float slicesPerScreen, const Vector2& screenCenter) {
+        const float sliceFloat = world.z;
+        if (sliceFloat > sliceAtCenter) {
+            return screenCenter;
+        }
+        float scale = (sliceAtCenter - sliceFloat) / slicesPerScreen;
+        const Vector2 center = { worldWidth / 2, worldHeight / 2 };
+        Vector2 pos = Vector2Subtract({ world.x, world.y }, center);
+        pos = Vector2Divide(pos, center); // normalize to -1..1
+        pos = Vector2Scale(pos, scale);
+        pos = Vector2Multiply(pos, screenCenter);
+        pos = Vector2Add(pos, screenCenter);
+        return pos;
     }
 
-    inline void drawRightSquare(const Vector2& a11, const Vector2& a22, const Vector2& aDelta,
-        const Vector2& b11, const Vector2& b22, const Vector2& bDelta,
-        const float t1, const float t2, const Color& color) {
+};
 
-        Vector2 p11 = { a22.x, a11.y + t1 * aDelta.y };
-        Vector2 p12 = { b22.x, b11.y + t1 * bDelta.y };
-        Vector2 p21 = { a22.x, a11.y + t2 * aDelta.y };
-        Vector2 p22 = { b22.x, b11.y + t2 * bDelta.y };
-        DrawTriangle(p11, p21, p22, color);
-        DrawTriangle(p11, p22, p12, color);
-    }
+void LevelGeometry::doRender()
+{
+    const float centerX = static_cast<float>(GetScreenWidth() / 2);
+    const float centerY = static_cast<float>(GetScreenHeight() / 2);
+    const Vector2 screenCenter = { centerX, centerY };
 
-    inline void drawBottomSquare(const Vector2& a11, const Vector2& a22, const Vector2& aDelta,
-        const Vector2& b11, const Vector2& b22, const Vector2& bDelta,
-        const float t1, const float t2, const Color& color) {
+    const float slicesBeforePlayer = 15.0f;
+    const float sliceAtCenter = playerSlice + slicesBeforePlayer;
+    const float slicesPerScreen = 20.0f;
+    const int numSlicesToIterate = static_cast<int>(slicesPerScreen) + 2;
+    const int sliceAtCenterInt = static_cast<int>(sliceAtCenter);
 
-        Vector2 p11 = { a11.x + (1.0f - t2) * aDelta.x, a22.y };
-        Vector2 p12 = { a11.x + (1.0f - t1) * aDelta.x, a22.y };
-        Vector2 p21 = { b11.x + (1.0f - t2) * bDelta.x, b22.y };
-        Vector2 p22 = { b11.x + (1.0f - t1) * bDelta.x, b22.y };
-        DrawTriangle(p11, p21, p22, color);
-        DrawTriangle(p11, p22, p12, color);
-    }
-
-    inline void drawLeftSquare(const Vector2& a11, const Vector2& a22, const Vector2& aDelta,
-        const Vector2& b11, const Vector2& b22, const Vector2& bDelta,
-        const float t1, const float t2, const Color& color) {
-
-        Vector2 p11 = { b11.x, b11.y + (1.0f - t2) * bDelta.y };
-        Vector2 p12 = { a11.x, a11.y + (1.0f - t2) * aDelta.y };
-        Vector2 p21 = { b11.x, b11.y + (1.0f - t1) * bDelta.y };
-        Vector2 p22 = { a11.x, a11.y + (1.0f - t1) * aDelta.y };
-        DrawTriangle(p11, p21, p22, color);
-        DrawTriangle(p11, p22, p12, color);
-    }
-
-    virtual void doRender() override
-    {
-        float centerX = static_cast<float>(GetScreenWidth() / 2);
-        float centerY = static_cast<float>(GetScreenHeight() / 2);
-        float dx = centerX / static_cast<float>(numLevels);
-        float dy = centerY / static_cast<float>(numLevels);
-        int actualSlice = std::max(0, std::min(slicePosition, numSlices - numLevels - 1));
-        for (int ii = 0; ii < numLevels; ++ii) {
-            int currSliceIndex = actualSlice - ii;
-            if (currSliceIndex < 0)
-                continue;
-
+    // draw grid
+    for (int ii = 0; ii < numSlicesToIterate; ++ii) {
+        int currSliceIndex = sliceAtCenterInt - ii;
+        if (currSliceIndex >= 0 && currSliceIndex < (static_cast<int>(worldGeom.size()) - 1)) {
+            assert(size_t(currSliceIndex) < worldGeom.size());
+            const std::vector<Vector3>& sliceWorld = worldGeom[currSliceIndex];
+            const std::vector<Vector3>& nextSliceWorld = worldGeom[currSliceIndex + 1];
+            assert(sliceWorld.size() <= size_t(sliceSize + 1));
             const std::vector<unsigned char>& slice = geom[currSliceIndex];
-            const float iifl = float(ii);
-            const float iifl2 = float(ii + 1);
-            const Vector2 a11 = { centerX - iifl * dx, centerY - iifl * dy };
-            const Vector2 a22 = { centerX + iifl * dx, centerY + iifl * dy };
-            const Vector2 aDelta = Vector2Subtract(a22, a11);
-            const Vector2 b11 = { centerX - iifl2 * dx, centerY - iifl2 * dy };
-            const Vector2 b22 = { centerX + iifl2 * dx, centerY + iifl2 * dy };
-            const Vector2 bDelta = Vector2Subtract(b22, b11);
-            //       b11--------------b12
-            //        |\              /|
-            //        | a11--------a12 |
+            //       b11-p3--------p2-b12
+            //        |\   \xxxxxx/   /|
+            //        | a11-p0--p1-a12 |
             //        |  |          |  |
             //        | a21--------a22 |
             //        |/              \|
             //       b21--------------b22
+            for (int jj = 0; jj < sliceSize; jj++) {
+                if (!slice[jj]) continue;
 
-            for (int jj = 0; jj < sliceWidth; jj++) {
-                if (slice[jj]) {
-                    float t1 = float(jj) / float(sliceWidth - 1);
-                    float t2 = float(jj + 1) / float(sliceWidth - 1);
-                    drawTopSquare(a11, a22, aDelta, b11, b22, bDelta, t1, t2, RED);
-                }
-            }
-
-            for (int jj = 0; jj < sliceHeight; jj++) {
-                int base = sliceWidth;
-                if (slice[base + jj]) {
-                    float t1 = float(jj) / float(sliceHeight - 1);
-                    float t2 = float(jj + 1) / float(sliceHeight - 1);
-                    drawRightSquare(a11, a22, aDelta, b11, b22, bDelta, t1, t2, RED);
-                }
-            }
-
-            for (int jj = 0; jj < sliceWidth; jj++) {
-                int base = sliceWidth + sliceHeight;
-                if (slice[jj]) {
-                    float t1 = float(jj) / float(sliceWidth - 1);
-                    float t2 = float(jj + 1) / float(sliceWidth - 1);
-                    drawBottomSquare(a11, a22, aDelta, b11, b22, bDelta, t1, t2, RED);
-                }
-            }
-
-            for (int jj = 0; jj < sliceHeight; jj++) {
-                int base = sliceWidth*2 + sliceHeight;
-                if (slice[base + jj]) {
-                    float t1 = float(jj) / float(sliceHeight - 1);
-                    float t2 = float(jj + 1) / float(sliceHeight - 1);
-                    drawLeftSquare(a11, a22, aDelta, b11, b22, bDelta, t1, t2, RED);
-                }
-            }
-
-            if (ii == playerSlice) {
-                int testPlayerPosition = playerPosition;
-
-                if (testPlayerPosition < sliceWidth) {
-                    float t1 = float(testPlayerPosition) / float(sliceWidth - 1);
-                    float t2 = float(testPlayerPosition + 1) / float(sliceWidth - 1);
-                    drawTopSquare(a11, a22, aDelta, b11, b22, bDelta, t1, t2, playerColor);
-                }
-                else {
-                    testPlayerPosition -= sliceWidth;
-                    if (testPlayerPosition < sliceHeight) {
-                        float t1 = float(testPlayerPosition) / float(sliceHeight - 1);
-                        float t2 = float(testPlayerPosition + 1) / float(sliceHeight - 1);
-                        drawRightSquare(a11, a22, aDelta, b11, b22, bDelta, t1, t2, playerColor);
-                    }
-                    else {
-                        testPlayerPosition -= sliceHeight;
-                        if (testPlayerPosition < sliceWidth) {
-                            float t1 = float(testPlayerPosition) / float(sliceWidth - 1);
-                            float t2 = float(testPlayerPosition + 1) / float(sliceWidth - 1);
-                            drawBottomSquare(a11, a22, aDelta, b11, b22, bDelta, t1, t2, playerColor);
-                        }
-                        else {
-                            testPlayerPosition -= sliceWidth;
-                            if (testPlayerPosition < sliceHeight) {
-                                float t1 = float(testPlayerPosition) / float(sliceHeight - 1);
-                                float t2 = float(testPlayerPosition + 1) / float(sliceHeight - 1);
-                                drawLeftSquare(a11, a22, aDelta, b11, b22, bDelta, t1, t2, playerColor);
-                            }
-                        }
-                    }
-                }
+                const Vector2 p0 = toScreen(sliceWorld[jj], sliceAtCenter, slicesPerScreen, screenCenter);
+                const Vector2 p1 = toScreen(sliceWorld[jj + 1], sliceAtCenter, slicesPerScreen, screenCenter);
+                const Vector2 p2 = toScreen(nextSliceWorld[jj + 1], sliceAtCenter, slicesPerScreen, screenCenter);
+                const Vector2 p3 = toScreen(nextSliceWorld[jj], sliceAtCenter, slicesPerScreen, screenCenter);
+                DrawTriangle(p2, p1, p0, RED);
+                DrawTriangle(p3, p2, p0, RED);
             }
         }
     }
-/*
-    // convert image slice/index into slice to a point; gives left-top most world point of element
-    Vector3 toWorld(int slice, int index) {
-        // ensure index in range
-        int modulo = sliceWidth * 2 + sliceHeight + 2;
-        while (index < 0) {
-            index += modulo; // yikes
-        }
-        index = index % modulo;
 
-        const float fSliceWidth = static_cast<float>(sliceWidth);
-        const float fSliceHeight = static_cast<float>(sliceHeight);
-        if (index < sliceWidth) {
-            float t1 = float(index) / fSliceWidth;
-            return(Vector3{ worldWidth * t1 / fSliceWidth, 0.0f, static_cast<float>(slice) });
-        }
+    // draw player
+    {
+        const Vector3 player0World = toWorldFloat(playerSlice + 0.5f, playerPosition - 0.5f);
+        const Vector3 player1World = toWorldFloat(playerSlice + 0.5f, playerPosition + 0.5f);
+        const Vector3 player2World = toWorldFloat(playerSlice - 0.5f, playerPosition + 0.5f);
+        const Vector3 player3World = toWorldFloat(playerSlice - 0.5f, playerPosition - 0.5f);
 
-        testPlayerPosition -= sliceWidth;
-        if (testPlayerPosition < sliceHeight) {
-            float t1 = float(index) / fSliceHeight;
-            return(Vector3{ worldWidth, worldHeight * t1 / fSliceHeight, 0.0f, static_cast<float>(slice) });
-        }
-
-        testPlayerPosition -= sliceHeight;
-        if (testPlayerPosition < sliceHeight) {
-            float t1 = 1.0f - float(index) / fSliceWidth;
-            return(Vector3{ worldWidth * t1 / fSliceWidth, fSliceHeight, static_cast<float>(slice) });
-            }
-
-                    float t1 = float(testPlayerPosition) / float(sliceWidth - 1);
-                    float t2 = float(testPlayerPosition + 1) / float(sliceWidth - 1);
-                    drawBottomSquare(a11, a22, aDelta, b11, b22, bDelta, t1, t2, playerColor);
-                }
-                else {
-                    testPlayerPosition -= sliceWidth;
-                    if (testPlayerPosition < sliceHeight) {
-                        float t1 = float(testPlayerPosition) / float(sliceHeight - 1);
-                        float t2 = float(testPlayerPosition + 1) / float(sliceHeight - 1);
-                        drawLeftSquare(a11, a22, aDelta, b11, b22, bDelta, t1, t2, playerColor);
-                    }
-                }
-            }
-        }
+        const Vector2 p0 = toScreen(player0World, sliceAtCenter, slicesPerScreen, screenCenter);
+        const Vector2 p1 = toScreen(player1World, sliceAtCenter, slicesPerScreen, screenCenter);
+        const Vector2 p2 = toScreen(player2World, sliceAtCenter, slicesPerScreen, screenCenter);
+        const Vector2 p3 = toScreen(player3World, sliceAtCenter, slicesPerScreen, screenCenter);
+        DrawTriangle(p0, p1, p2, playerColor);
+        DrawTriangle(p0, p2, p3, playerColor);
     }
-    */
-    // grid space
-    std::vector< std::vector<unsigned char> > geom;
-    // float playerSlice;
-    //float playerPosition; // position on slice
-    int playerPosition; // position on slice
-
-    // items in world space
-    const int                           worldWidth = static_cast<float>(sliceWidth);
-    const int                           worldHeight = static_cast<float>(sliceHeight);
-    std::vector< std::vector<Vector3> > worldGeom; // position of top-left point of each geom pixel; includes extra row/element to bake end 
-
-
-    int slicePosition;
-    const int numSlices = 3000;
-    const int sliceWidth = 80;
-    const int sliceHeight = 60;
-    const int sliceSize = sliceWidth * 2 + sliceHeight * 2;
-    const int numLevels = 46;
-    const int playerSlice = numLevels - 10;
-    Color playerColor;
-};
-
-
+}
 
 class GameState
 {
 public:
-    typedef enum PlayerDirection { CCW, CW, IN, OUT } PlayerDirection;
+    enum class PlayerDirection { CCW, CW, IN, OUT };
 
     GameState()
-      : playerDirection(IN)
+      : playerDirection(PlayerDirection::IN)
       , simTick(0)
     {
     }
 
     void Sim(float simTimeSeconds) {
-        if (IsKeyDown(KEY_UP)) playerDirection = IN;
-        if (IsKeyDown(KEY_DOWN)) playerDirection = OUT;
-        if (IsKeyDown(KEY_LEFT)) playerDirection = CCW;
-        if (IsKeyDown(KEY_RIGHT)) playerDirection = CW;
-        if (playerDirection == IN) {
-            if (simTick%3==0) lg.slicePosition++;
+        const float playerHorizontalSpeed = 0.75;
+        const float playerVerticalSpeed = 0.5;
+
+        if (IsKeyDown(KEY_UP)) playerDirection = PlayerDirection::IN;
+        if (IsKeyDown(KEY_DOWN)) playerDirection = PlayerDirection::OUT;
+        if (IsKeyDown(KEY_LEFT)) playerDirection = PlayerDirection::CCW;
+        if (IsKeyDown(KEY_RIGHT)) playerDirection = PlayerDirection::CW;
+        if (playerDirection == PlayerDirection::IN) {
+            if (simTick%3==0) lg.playerSlice += playerVerticalSpeed;
         }
-        else if (playerDirection == OUT) {
-            if (simTick % 3 == 0) lg.slicePosition--;
+        else if (playerDirection == PlayerDirection::OUT) {
+            if (simTick % 3 == 0) lg.playerSlice -= playerVerticalSpeed;
         }
-        else if (playerDirection == CCW) {
-            lg.incrPlayerPosition(-1);
+        else if (playerDirection == PlayerDirection::CCW) {
+            lg.incrPlayerPosition(-playerHorizontalSpeed);
         }
-        else if (playerDirection == CW) {
-            lg.incrPlayerPosition(1);
+        else if (playerDirection == PlayerDirection::CW) {
+            lg.incrPlayerPosition(playerHorizontalSpeed);
         }
         simTick++;
     }
