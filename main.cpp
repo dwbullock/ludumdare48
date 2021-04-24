@@ -13,13 +13,14 @@
 *
 ********************************************************************************************/
 
-#include "raylib.h"
-#include "raymath.h"
+#include <chrono>
+#include <thread>
 #include <sstream>
 #include <vector>
 #include <memory>
 #include <assert.h>
-
+#include "raylib.h"
+#include "raymath.h"
 
 class Thing
 {
@@ -160,6 +161,31 @@ public:
     std::vector<Color> rings;
 };
 
+bool isVisible(const Color& col)
+{
+    return !(col.a == 0 ||
+        (col.r == 0 && col.g == 0 && col.b == 0));
+}
+
+typedef struct SimSpacePosition {
+    SimSpacePosition(float slice = 0.0f, float positionInSlice = 0.0f)
+        : slice(slice)
+        , positionInSlice(positionInSlice) {}
+
+    float slice;
+    float positionInSlice;
+} SimSpacePosition; 
+
+void playerCornersInSimSpace(
+    float playerSlice, float playerPosition, float playerWidthInSliceDiv2, float playerHeightSliceDirDiv2,
+    SimSpacePosition& p0, SimSpacePosition& p1, SimSpacePosition& p2, SimSpacePosition& p3)
+{
+    p0 = { playerSlice + playerHeightSliceDirDiv2, playerPosition - playerWidthInSliceDiv2 };
+    p1 = { playerSlice + playerHeightSliceDirDiv2, playerPosition + playerWidthInSliceDiv2 };
+    p2 = { playerSlice - playerHeightSliceDirDiv2, playerPosition + playerWidthInSliceDiv2 };
+    p3 = { playerSlice - playerHeightSliceDirDiv2, playerPosition - playerWidthInSliceDiv2 };
+}
+
 class LevelGeometry : public Thing
 {
 public:
@@ -168,6 +194,7 @@ public:
         , playerPosition(static_cast<float>(sliceWidth + sliceWidth / 2 + sliceHeight))
         , playerColor({ 45,227,191,255 })
         , playerSlice(10.0f)
+        , numSlices(3000)
     {
         geom.resize(numSlices);
         for (int ii = 0; ii < numSlices; ++ii) {
@@ -183,7 +210,10 @@ public:
                 geom[ii][jj] = sliceVal;
             }
         }
-        
+        updateWorldGeom();
+    }
+
+    void updateWorldGeom() {
         worldGeom.resize(geom.size() + 1);
         for (size_t ii = 0; ii < worldGeom.size(); ++ii) {
             std::vector<Vector3>& worldSlice = worldGeom[ii];
@@ -193,17 +223,76 @@ public:
             }
         }
     }
+    void loadLevelFromImage(const char fname[]) {
+        Image levelImage = LoadImage(fname);
+        Color* colors = LoadImageColors(levelImage);
+        numSlices = levelImage.width;
+        int height = std::max(levelImage.height, sliceSize);
 
+        geom.resize(numSlices);
+        for (int ii = 0; ii < numSlices; ++ii) {
+            geom[ii].resize(sliceSize);
+            for (int jj = 0; jj < sliceSize; ++jj) {
+                unsigned char val = 0;
+                if (jj < levelImage.height) {
+                    if (isVisible(colors[numSlices * jj + ii])) {
+                        val = 255;
+                    }
+                }
+                geom[ii][jj] = val;
+            }
+        }
+        updateWorldGeom();
+        UnloadImageColors(colors);
+        UnloadImage(levelImage);
+    }
     virtual void doRender() override;
 
-    void incrPlayerPosition(float val) {
+    bool collides(float testPlayerSlice, float testPlayerPosition) {
+        auto testSinglePoint = [=](const SimSpacePosition& spp) -> bool {
+            int intSlice = static_cast<int>(floorf(spp.slice));
+            int intSlicePosition = static_cast<int>(floorf(spp.positionInSlice));
+            if (intSlice >= 0 && intSlice < static_cast<int>(geom.size())) {
+                const auto& slice = geom[intSlice];
+                if (intSlicePosition >= 0 && intSlicePosition < static_cast<int>(slice.size())) {
+                    if (slice[intSlicePosition])
+                        return true;
+                }
+            }
+            return false;
+        };
+
+        SimSpacePosition sp0, sp1, sp2, sp3;
+        playerCornersInSimSpace(testPlayerSlice, testPlayerPosition, playerWidthInSliceDiv2, playerHeightSliceDirDiv2, sp0, sp1, sp2, sp3);
+
+
+        return testSinglePoint(sp0) || testSinglePoint(sp1) || testSinglePoint(sp2) || testSinglePoint(sp3);;
+    }
+    // returns true if there was a collision
+    bool incrPlayerPosition(float val) {
         const float modulo = static_cast<float>(2 * sliceWidth + 2 * sliceHeight);
-        playerPosition = fmodf(playerPosition + modulo + val, modulo);
+        float newPlayerPosition = fmodf(playerPosition + modulo + val, modulo);
+        if (collides(playerSlice, newPlayerPosition)) {
+            return true;
+        }
+        playerPosition = newPlayerPosition;
+        return false;
     }
 
-    const int numSlices = 3000;
+    bool incrPlayerSlice(float val) {
+        float newPlayerSlice = playerSlice + val;
+        if (collides(newPlayerSlice, playerPosition)) {
+            return true;
+        }
+        playerSlice = newPlayerSlice;
+        return false;
+    }
+
+    int numSlices = 3000;
     const int sliceWidth = 80;
     const int sliceHeight = 60;
+    const float playerHeightSliceDirDiv2 = 0.5f;
+    const float playerWidthInSliceDiv2 = 0.5f;
     //const int sliceWidth = 80;
     //const int sliceHeight = 60;
     const int sliceSize = sliceWidth * 2 + sliceHeight * 2;
@@ -222,6 +311,7 @@ public:
 
 
   private:
+
       // convert image slice/index into slice to a point; gives left-top most world point of element
       Vector3 toWorld(float slice, int index) {
           // ensure index in range
@@ -325,10 +415,12 @@ void LevelGeometry::doRender()
 
     // draw player
     {
-        const Vector3 player0World = toWorldFloat(playerSlice + 0.5f, playerPosition - 0.5f);
-        const Vector3 player1World = toWorldFloat(playerSlice + 0.5f, playerPosition + 0.5f);
-        const Vector3 player2World = toWorldFloat(playerSlice - 0.5f, playerPosition + 0.5f);
-        const Vector3 player3World = toWorldFloat(playerSlice - 0.5f, playerPosition - 0.5f);
+        SimSpacePosition sp0, sp1, sp2, sp3;
+        playerCornersInSimSpace(playerSlice, playerPosition, playerWidthInSliceDiv2, playerHeightSliceDirDiv2, sp0, sp1, sp2, sp3);
+        const Vector3 player0World = toWorldFloat(sp0.slice, sp0.positionInSlice);
+        const Vector3 player1World = toWorldFloat(sp1.slice, sp1.positionInSlice);
+        const Vector3 player2World = toWorldFloat(sp2.slice, sp2.positionInSlice);
+        const Vector3 player3World = toWorldFloat(sp3.slice, sp3.positionInSlice);
 
         const Vector2 p0 = toScreen(player0World, sliceAtCenter, slicesPerScreen, screenCenter);
         const Vector2 p1 = toScreen(player1World, sliceAtCenter, slicesPerScreen, screenCenter);
@@ -348,6 +440,7 @@ public:
       : playerDirection(PlayerDirection::IN)
       , simTick(0)
     {
+        lg.loadLevelFromImage("Content/test_level.png");
     }
 
     void Sim(float simTimeSeconds) {
@@ -359,10 +452,10 @@ public:
         if (IsKeyDown(KEY_LEFT)) playerDirection = PlayerDirection::CCW;
         if (IsKeyDown(KEY_RIGHT)) playerDirection = PlayerDirection::CW;
         if (playerDirection == PlayerDirection::IN) {
-            if (simTick%3==0) lg.playerSlice += playerVerticalSpeed;
+            lg.incrPlayerSlice(playerVerticalSpeed);
         }
         else if (playerDirection == PlayerDirection::OUT) {
-            if (simTick % 3 == 0) lg.playerSlice -= playerVerticalSpeed;
+            lg.incrPlayerSlice(-playerVerticalSpeed);
         }
         else if (playerDirection == PlayerDirection::CCW) {
             lg.incrPlayerPosition(-playerHorizontalSpeed);
@@ -400,10 +493,12 @@ int main(void)
     float simTimeSeconds = 1.0f / static_cast<float>(fps);
 
     InitWindow(screenWidth, screenHeight, "Ludumdare 48");
+    InitAudioDevice();
     SetTargetFPS(fps);
 
     // Main game loop
     GameState gameState;
+    while (!IsAudioDeviceReady()) std::this_thread::sleep_for(std::chrono::milliseconds(20));
     while (!WindowShouldClose())    // Detect window close button or ESC key
     {
         gameState.Sim(simTimeSeconds);
@@ -411,7 +506,7 @@ int main(void)
     }
 
     CloseWindow();        // Close window and OpenGL context
-
+    CloseAudioDevice();
     return 0;
 }
 
