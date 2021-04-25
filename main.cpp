@@ -331,10 +331,16 @@ public:
         float t2;
         float vel1;
         float vel2;
+        int count;
+        Color color;
 
         SimElement() {
             vel1 = vel2 = t1 = t2 = 0.0f;
             dir = Vector2{ 0,0 };
+            count = 0;
+            static std::vector<Color> colors = { {124, 10, 2, 255}, {178, 34, 34, 255}, {226, 88, 34, 255}, {241, 188, 49}, {246, 240, 82} };
+            
+            color = colors[GetRandomValue(0, colors.size() - 1)];
         }
         void setDir(Vector2 dir) {
             this->dir = Vector2Normalize(dir);
@@ -343,13 +349,13 @@ public:
         void simit() {
             t1 += vel1;
             t2 += vel2;
+            ++count;
         }
 
         void renderit(const Vector2& origin, LevelTransformer& transform) {
             Vector2 pa = Vector2Add(origin, Vector2Multiply(dir, { t1, t1 }));
             Vector2 pb = Vector2Add(origin, Vector2Multiply(dir, { t2, t2 }));
 
-            Vector2 xx = transform.simToScreen(origin.x, origin.y);
             Vector2 pas = transform.simToScreen(pa.x, pa.y);
             Vector2 pbs = transform.simToScreen(pb.x, pb.y);
             std::vector< Vector2 > pts;
@@ -359,8 +365,13 @@ public:
                 Vector2 ptSim = Vector2Lerp(pa, pb, tt);
                 pts.push_back(transform.simToScreen(ptSim.x, ptSim.y));
             }
+            float aa = 255;
+            if (count*2 > 50) {
+                aa = std::max(0, 255 + 50 - count*2);
+            }
+            color.a = aa;
             for (int ii = 0; ii < nExplosionPoints-1; ++ii) {
-                DrawLineV(pts[ii], pts[ii+1], PURPLE);
+                DrawLineV(pts[ii], pts[ii+1], color);
             }
         }
     };
