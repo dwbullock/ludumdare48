@@ -208,14 +208,45 @@ class SafeImage
         Image image;
 };
 
+float RandFloat()
+{
+    return static_cast<float>(rand() % 1001) / 1000.0f;
+}
+
+float RandFloat(float max)
+{
+    return max * (static_cast<float>(rand() % 1001) / 1000.0f);
+}
+
 class LevelTransformer
 {
+public:
     LevelTransformer(int sliceSize, int sliceWidth, int sliceHeight, float worldWidth, float worldHeight)
         : sliceSize(sliceSize)
         , sliceWidth(sliceWidth)
         , sliceHeight(sliceHeight)
         , worldWidth(worldWidth)
-        , worldHeight(worldHeight) {
+        , worldHeight(worldHeight)
+        , fSliceWidth(static_cast<float>(sliceWidth))
+        , fSliceHeight(static_cast<float>(sliceHeight))
+        , slicesPerScreen(-1)
+        , sliceAtCenter(-1.0f)
+        , screenCenter{ 0,0 }
+    {
+    }
+
+    LevelTransformer()
+        : sliceSize(0)
+        , sliceWidth(0)
+        , sliceHeight(0)
+        , worldWidth(0)
+        , worldHeight(0)
+        , fSliceWidth(0)
+        , fSliceHeight(0)
+        , slicesPerScreen(-1)
+        , sliceAtCenter(-1.0f)
+        , screenCenter{ 0,0 }
+    {
     }
 
     // convert image slice/index into slice to a point; gives left-top most world point of element
@@ -227,8 +258,6 @@ class LevelTransformer
         }
         index = index % modulo;
 
-        const float fSliceWidth = static_cast<float>(sliceWidth);
-        const float fSliceHeight = static_cast<float>(sliceHeight);
         if (index < sliceWidth) {
             float t1 = float(index) / fSliceWidth;
             return(Vector3{ worldWidth * t1, 0.0f, slice });
@@ -261,11 +290,116 @@ class LevelTransformer
         return Vector3Lerp(p0, p1, t);
     }
 
-    const int sliceSize;
-    const int sliceWidth;
-    const int sliceHeight;
-    const float worldWidth;
-    const float worldHeight;
+    Vector2 worldToScreen(const Vector3& world) const {
+        const float sliceFloat = world.z;
+        if (sliceFloat > sliceAtCenter) {
+            return screenCenter;
+        }
+        float scale = (sliceAtCenter - sliceFloat) / slicesPerScreen;
+        const Vector2 center = { worldWidth / 2, worldHeight / 2 };
+        Vector2 pos = Vector2Subtract({ world.x, world.y }, center);
+        pos = Vector2Divide(pos, center); // normalize to -1..1
+        pos = Vector2Scale(pos, scale);
+        pos = Vector2Multiply(pos, screenCenter);
+        pos = Vector2Add(pos, screenCenter);
+        return pos;
+    }
+
+    Vector2 simToScreen(float slice, float index) const {
+        return worldToScreen(simToWorldFloat(slice, index));
+    }
+
+    int sliceSize;
+    int sliceWidth;
+    int sliceHeight;
+    float worldWidth;
+    float worldHeight;
+    float fSliceWidth;
+    float fSliceHeight;
+    
+    float sliceAtCenter;
+    float slicesPerScreen;
+    Vector2 screenCenter;
+};
+
+class Explosion : public Thing
+{
+public:
+    typedef struct SimElement {
+        Vector2 dir;
+        float t1;
+        float t2;
+        float vel1;
+        float vel2;
+
+        SimElement() {
+            vel1 = vel2 = t1 = t2 = 0.0f;
+            dir = Vector2{ 0,0 };
+        }
+        void setDir(Vector2 dir) {
+            this->dir = Vector2Normalize(dir);
+        }
+
+        void simit() {
+            t1 += vel1;
+            t2 += vel2;
+        }
+
+        void renderit(const Vector2& origin, LevelTransformer& transform) {
+            Vector2 pa = Vector2Add(origin, Vector2Multiply(dir, { t1, t1 }));
+            Vector2 pb = Vector2Add(origin, Vector2Multiply(dir, { t2, t2 }));
+
+            Vector2 xx = transform.simToScreen(origin.x, origin.y);
+            Vector2 pas = transform.simToScreen(pa.x, pa.y);
+            Vector2 pbs = transform.simToScreen(pb.x, pb.y);
+            std::vector< Vector2 > pts;
+            const int nExplosionPoints = 50;
+            for (int ii = 0; ii < nExplosionPoints; ++ii) {
+                float tt = float(ii) / 9;
+                Vector2 ptSim = Vector2Lerp(pa, pb, tt);
+                pts.push_back(transform.simToScreen(ptSim.x, ptSim.y));
+            }
+            for (int ii = 0; ii < nExplosionPoints-1; ++ii) {
+                DrawLineV(pts[ii], pts[ii+1], PURPLE);
+            }
+        }
+    };
+
+    Explosion()
+    {
+        const int numShards = 100;
+        for (int ii = 0; ii < numShards; ++ii) {
+            add();
+        }
+    }
+
+    void add() {
+        float deg = RandFloat(360.0f);
+        Vector2 dir = Vector2Rotate({ 1.0f, 0.0f }, deg);
+        SimElement elem;
+        elem.setDir(dir);
+        elem.vel2 = RandFloat(1.3f);
+        elem.vel1 = elem.vel2 * (0.8f + RandFloat(0.2f));
+        explosionShards.push_back(elem);
+    }
+    void simit(int simTick) {
+        for (auto& elem : explosionShards) {
+            elem.simit();
+        }
+        if (explosionShards.size() < 1000)
+            for (int pp = 0; pp < 30; ++pp) add();
+    }
+
+    void doRender() override {
+        Vector2 originV{ origin.slice, origin.positionInSlice };
+        for (auto& elem : explosionShards) {
+            elem.renderit(originV, transform);
+        }
+    }
+
+    LevelTransformer transform;
+    SimSpacePosition origin;
+    std::vector< SimElement > explosionShards;
 };
 
 class LevelGeometry : public Thing
@@ -278,6 +412,7 @@ public:
         , playerSlice(10.0f)
         , numSlices(3000)
         , dangerZone(startingDangerZone)
+        , transformer(sliceSize, sliceWidth, sliceHeight, worldWidth, worldHeight)
     {
         geom.resize(numSlices);
         for (int ii = 0; ii < numSlices; ++ii) {
@@ -302,7 +437,7 @@ public:
             std::vector<Vector3>& worldSlice = worldGeom[ii];
             worldSlice.resize(sliceSize + 1);
             for (size_t jj = 0; jj < worldSlice.size(); ++jj) {
-                worldSlice[jj] = toWorld(static_cast<float>(ii), jj);
+                worldSlice[jj] = transformer.simToWorld(static_cast<float>(ii), jj);
             }
         }
     }
@@ -420,79 +555,23 @@ public:
     // Visuals
     std::unique_ptr<SafeImage> backgroundImage;
 
+    LevelTransformer transformer;
+
   private:
-
-      // convert image slice/index into slice to a point; gives left-top most world point of element
-      Vector3 toWorld(float slice, int index) {
-          // ensure index in range
-          int modulo = sliceSize;
-          while (index < 0) {
-              index += modulo; // yikes
-          }
-          index = index % modulo;
-
-          const float fSliceWidth = static_cast<float>(sliceWidth);
-          const float fSliceHeight = static_cast<float>(sliceHeight);
-          if (index < sliceWidth) {
-              float t1 = float(index) / fSliceWidth;
-              return(Vector3{ worldWidth * t1, 0.0f, slice });
-          }
-
-          index -= sliceWidth;
-          if (index < sliceHeight) {
-              float t1 = float(index) / fSliceHeight;
-              return(Vector3{ worldWidth, worldHeight * t1, slice });
-          }
-
-          index -= sliceHeight;
-          if (index < sliceWidth) {
-              float t1 = 1.0f - float(index) / fSliceWidth;
-              return(Vector3{ worldWidth * t1, worldHeight, slice });
-          }
-
-          index -= sliceWidth;
-          float t1 = 1.0f - float(index) / fSliceHeight;
-          return(Vector3{ 0, worldHeight * t1, slice });
-      }
-
-      Vector3 toWorldFloat(float slice, float index) {
-          float index1 = floorf(index);
-          float t = index - index1;
-          int index1Int = static_cast<int>(index1);
-
-          Vector3 p0 = toWorld(slice, index1Int);
-          Vector3 p1 = toWorld(slice, index1Int+1);
-          return Vector3Lerp(p0, p1, t);
-      }
-
-      Vector2 toScreen(const Vector3& world, float sliceAtCenter, float slicesPerScreen, const Vector2& screenCenter) {
-        const float sliceFloat = world.z;
-        if (sliceFloat > sliceAtCenter) {
-            return screenCenter;
-        }
-        float scale = (sliceAtCenter - sliceFloat) / slicesPerScreen;
-        const Vector2 center = { worldWidth / 2, worldHeight / 2 };
-        Vector2 pos = Vector2Subtract({ world.x, world.y }, center);
-        pos = Vector2Divide(pos, center); // normalize to -1..1
-        pos = Vector2Scale(pos, scale);
-        pos = Vector2Multiply(pos, screenCenter);
-        pos = Vector2Add(pos, screenCenter);
-        return pos;
-      }
 
       void DrawPlayer(const Vector2& screenCenter, float sliceAtCenter)
       {
           SimSpacePosition sp0, sp1, sp2, sp3;
           playerCornersInSimSpace(playerSlice, playerPosition, playerWidthInSliceDiv2, playerHeightSliceDirDiv2, sp0, sp1, sp2, sp3);
-          const Vector3 player0World = toWorldFloat(sp0.slice, sp0.positionInSlice);
-          const Vector3 player1World = toWorldFloat(sp1.slice, sp1.positionInSlice);
-          const Vector3 player2World = toWorldFloat(sp2.slice, sp2.positionInSlice);
-          const Vector3 player3World = toWorldFloat(sp3.slice, sp3.positionInSlice);
+          const Vector3 player0World = transformer.simToWorldFloat(sp0.slice, sp0.positionInSlice);
+          const Vector3 player1World = transformer.simToWorldFloat(sp1.slice, sp1.positionInSlice);
+          const Vector3 player2World = transformer.simToWorldFloat(sp2.slice, sp2.positionInSlice);
+          const Vector3 player3World = transformer.simToWorldFloat(sp3.slice, sp3.positionInSlice);
 
-          const Vector2 p0 = toScreen(player0World, sliceAtCenter, slicesPerScreen, screenCenter);
-          const Vector2 p1 = toScreen(player1World, sliceAtCenter, slicesPerScreen, screenCenter);
-          const Vector2 p2 = toScreen(player2World, sliceAtCenter, slicesPerScreen, screenCenter);
-          const Vector2 p3 = toScreen(player3World, sliceAtCenter, slicesPerScreen, screenCenter);
+          const Vector2 p0 = transformer.worldToScreen(player0World);
+          const Vector2 p1 = transformer.worldToScreen(player1World);
+          const Vector2 p2 = transformer.worldToScreen(player2World);
+          const Vector2 p3 = transformer.worldToScreen(player3World);
           DrawTriangle(p0, p1, p2, playerColor);
           DrawTriangle(p0, p2, p3, playerColor);
       }
@@ -517,10 +596,10 @@ public:
                   //        |/              \|
                   //       b21--------------b22
                   for (int jj = 0; jj < sliceSize; jj++) {
-                      const Vector2 p0 = toScreen(sliceWorld[jj], sliceAtCenter, slicesPerScreen, screenCenter);
-                      const Vector2 p1 = toScreen(sliceWorld[jj + 1], sliceAtCenter, slicesPerScreen, screenCenter);
-                      const Vector2 p2 = toScreen(nextSliceWorld[jj + 1], sliceAtCenter, slicesPerScreen, screenCenter);
-                      const Vector2 p3 = toScreen(nextSliceWorld[jj], sliceAtCenter, slicesPerScreen, screenCenter);
+                      const Vector2 p0 = transformer.worldToScreen(sliceWorld[jj]);
+                      const Vector2 p1 = transformer.worldToScreen(sliceWorld[jj + 1]);
+                      const Vector2 p2 = transformer.worldToScreen(nextSliceWorld[jj + 1]);
+                      const Vector2 p3 = transformer.worldToScreen(nextSliceWorld[jj]);
                       Color col;
                       bool render;
                       ColorCallback(currSliceIndex, jj, col, render);
@@ -556,10 +635,10 @@ public:
                   for (int jj = 0; jj < sliceSize; jj++) {
                       if (!slice[jj]) continue;
 
-                      const Vector2 p0 = toScreen(sliceWorld[jj], sliceAtCenter, slicesPerScreen, screenCenter);
-                      const Vector2 p1 = toScreen(sliceWorld[jj + 1], sliceAtCenter, slicesPerScreen, screenCenter);
-                      const Vector2 p2 = toScreen(nextSliceWorld[jj + 1], sliceAtCenter, slicesPerScreen, screenCenter);
-                      const Vector2 p3 = toScreen(nextSliceWorld[jj], sliceAtCenter, slicesPerScreen, screenCenter);
+                      const Vector2 p0 = transformer.worldToScreen(sliceWorld[jj]);
+                      const Vector2 p1 = transformer.worldToScreen(sliceWorld[jj + 1]);
+                      const Vector2 p2 = transformer.worldToScreen(nextSliceWorld[jj + 1]);
+                      const Vector2 p3 = transformer.worldToScreen(nextSliceWorld[jj]);
                       DrawTriangle(p2, p1, p0, col);
                       DrawTriangle(p3, p2, p0, col);
                   }
@@ -616,6 +695,8 @@ public:
         , pausedText(WHITE, { 370, 300 }, "PAUSED")
         , paused(false)
         , playerDead(false)
+        , transformer(lg.transformer)
+        , noKill(false)
     {
         lg.loadLevelFromImage("Content/test_level.png");
         lg.loadBackgroundImage("Content/test_level_bg.png");
@@ -636,14 +717,20 @@ public:
         const float playerHorizontalSpeed = 0.75;
         const float playerVerticalSpeed = 0.5;
 
+        if (IsKeyPressed(KEY_K)) noKill = !noKill;
         if (IsKeyPressed(KEY_D)) debugText.display = !debugText.display;
         if (IsKeyPressed(KEY_P)) {
             paused = !paused;
             pausedText.display = paused;
         }
-        if (paused || playerDead)
+        if (paused)
             return;
 
+        if (playerDead) {
+            explosion.simit(simTick);
+            return;
+        }
+        
         if (IsKeyDown(KEY_UP)) playerDirection = PlayerDirection::IN;
         if (IsKeyDown(KEY_DOWN)) playerDirection = PlayerDirection::OUT;
         if (IsKeyDown(KEY_LEFT)) playerDirection = PlayerDirection::CCW;
@@ -680,11 +767,12 @@ public:
         else {
             if (! IsSoundPlaying(dangerSound))
                 PlaySound(dangerSound);
-            SetSoundVolume(dangerSound, dangerValue * 0.4);
+            SetSoundVolume(dangerSound, dangerValue * 0.4f);
         }
 
-        if (static_cast<int>(floorf(lg.playerSlice)) <= lg.dangerZone) {
+        if (!noKill && static_cast<int>(floorf(lg.playerSlice)) <= lg.dangerZone) {
             playerDead = true;
+            explosion.origin = SimSpacePosition(lg.playerSlice, lg.playerPosition);
             PlaySound(deathSound);
         }
 
@@ -696,12 +784,22 @@ public:
     }
 
     void Render() {
+        const float centerX = static_cast<float>(GetScreenWidth() / 2);
+        const float centerY = static_cast<float>(GetScreenHeight() / 2);
+        transformer.screenCenter = Vector2{ centerX, centerY };
+        transformer.slicesPerScreen = lg.slicesPerScreen;
+        transformer.sliceAtCenter = lg.playerSlice + lg.slicesBeforePlayer;
+
+        lg.transformer = transformer;
+        explosion.transform = transformer;
+
         BeginDrawing();
         ClearBackground(BLACK);
 
         lg.render();
         debugText.render();
         pausedText.render();
+        if (playerDead) explosion.render();
 
         EndDrawing();
     }
@@ -713,10 +811,13 @@ public:
     Text pausedText;
     bool paused;
     bool playerDead;
+    bool noKill;
 
     Sound bump;
     Sound dangerSound;
     Sound deathSound;
+    LevelTransformer transformer;
+    Explosion explosion;
 };
 
 
@@ -727,8 +828,8 @@ int main(void)
 {
     // Initialization
     //--------------------------------------------------------------------------------------
-    const int screenWidth = 800;
-    const int screenHeight = 600;
+    const int screenWidth = 1200;
+    const int screenHeight = 900;
     const int fps = 60;
     float simTimeSeconds = 1.0f / static_cast<float>(fps);
 
@@ -739,6 +840,7 @@ int main(void)
     // Main game loop
     GameState gameState;
     while (!IsAudioDeviceReady()) std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    SetMasterVolume(0.5);
     while (!WindowShouldClose())    // Detect window close button or ESC key
     {
         gameState.Sim(simTimeSeconds);
