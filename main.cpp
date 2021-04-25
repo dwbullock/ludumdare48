@@ -178,7 +178,16 @@ typedef struct SimSpacePosition {
 
     float slice;
     float positionInSlice;
-} SimSpacePosition; 
+} SimSpacePosition;
+
+typedef struct GridPosition {
+    GridPosition(int slice = 0, int positionInSlice = 0)
+        : slice(slice)
+        , positionInSlice(positionInSlice) {}
+    bool operator==(const GridPosition& gp) const { return slice == gp.slice && positionInSlice == gp.positionInSlice; }
+    int slice;
+    int positionInSlice;
+} GridPosition;
 
 void playerCornersInSimSpace(
     float playerSlice, float playerPosition, float playerWidthInSliceDiv2, float playerHeightSliceDirDiv2,
@@ -189,6 +198,62 @@ void playerCornersInSimSpace(
     p2 = { playerSlice - playerHeightSliceDirDiv2, playerPosition + playerWidthInSliceDiv2 };
     p3 = { playerSlice - playerHeightSliceDirDiv2, playerPosition - playerWidthInSliceDiv2 };
 }
+
+
+
+bool inGridRange(const GridPosition& pos, const GridPosition& gp1, const GridPosition& gp2)
+{
+    if (gp1.slice == INT_MIN && gp2.slice == INT_MIN)
+        return false;
+
+    GridPosition minGp(std::min(gp1.slice, gp2.slice), std::min(gp1.positionInSlice, gp2.positionInSlice));
+    GridPosition maxGp(std::max(gp1.slice, gp2.slice), std::max(gp1.positionInSlice, gp2.positionInSlice));
+    return pos.slice >= minGp.slice && pos.slice <= maxGp.slice && pos.positionInSlice >= minGp.positionInSlice && pos.positionInSlice <= maxGp.positionInSlice;
+}
+
+bool havePath(const GridPosition& aa, const GridPosition& bb,
+    const std::vector< std::vector< unsigned char > >& geom,
+    int sliceSize, int startSlice, int endSlice, GridPosition tempWallA = { INT_MIN, INT_MIN }, GridPosition tempWallB = { INT_MIN, INT_MIN }) {
+    assert(! geom[aa.slice][aa.positionInSlice]);
+    assert(! geom[bb.slice][bb.positionInSlice]);
+    assert(aa.slice >= startSlice && aa.slice <= endSlice);
+    assert(bb.slice >= startSlice && bb.slice <= endSlice);
+
+    std::vector< bool > visited((endSlice - startSlice + 1) * sliceSize, false);
+    std::vector< GridPosition > candidates;
+
+    auto visitedArrayElem = [startSlice, endSlice, sliceSize](const GridPosition& position) -> int {
+        assert(position.slice >= startSlice && position.slice <= endSlice);
+        return (position.slice - startSlice) * sliceSize + position.positionInSlice;
+    };
+
+    auto testAndAdd = [&](const GridPosition& newPos) {
+        if (newPos.slice > endSlice || newPos.slice < startSlice ||
+            visited[visitedArrayElem(newPos)] || geom[newPos.slice][newPos.positionInSlice] ||
+            inGridRange(newPos, tempWallA, tempWallB))
+            return;
+        candidates.push_back(newPos);
+    };
+
+    visited[visitedArrayElem(aa)] = true;
+    candidates.push_back(aa);
+    bool pathExists = false;
+    while (!pathExists && !candidates.empty()) {
+        GridPosition pos = candidates.back();
+        candidates.pop_back();
+        visited[visitedArrayElem(pos)] = true;
+        if (pos == bb) {
+            pathExists = true;
+            continue;
+        }
+        testAndAdd(GridPosition(pos.slice + 1, pos.positionInSlice));
+        testAndAdd(GridPosition(pos.slice - 1, pos.positionInSlice));
+        testAndAdd(GridPosition(pos.slice, (pos.positionInSlice - 1 + sliceSize) % sliceSize));
+        testAndAdd(GridPosition(pos.slice, (pos.positionInSlice + 1) % sliceSize));
+    }
+    return pathExists;
+}
+
 
 class SafeImage
 {
@@ -443,6 +508,8 @@ public:
         updateWorldGeom();
     }
 
+    virtual void doRender() override;
+
     void updateWorldGeom() {
         worldGeom.resize(geom.size() + 1);
         for (size_t ii = 0; ii < worldGeom.size(); ++ii) {
@@ -476,10 +543,205 @@ public:
         UnloadImageColors(colors);
         UnloadImage(levelImage);
     }
-    virtual void doRender() override;
+
+
+    void setGridRange(std::vector< std::vector< unsigned char > >& geom, int startSlice, int endSlice, const GridPosition& gp1, const GridPosition& gp2, unsigned char value = 0, int quantize = 1)
+    {
+        GridPosition minGp(std::min(gp1.slice, gp2.slice), std::min(gp1.positionInSlice, gp2.positionInSlice));
+        GridPosition maxGp(std::max(gp1.slice, gp2.slice), std::max(gp1.positionInSlice, gp2.positionInSlice));
+        //std::cout << minGp.slice << ", " << minGp.positionInSlice << " -> " << maxGp.slice << ", " << maxGp.positionInSlice << std::endl;
+        for (int ii = minGp.slice; ii <= maxGp.slice; ++ii) {
+            if (ii < startSlice || ii > endSlice)
+                continue;
+            for (int jj = minGp.positionInSlice; jj <= maxGp.positionInSlice; ++jj) {
+                int slice = ii;
+                int pos = (jj + sliceSize) % sliceSize;
+                if (quantize > 1) {
+                    pos = pos / quantize;
+                    pos *= quantize;
+                }
+                geom[slice][pos] = value;
+            }
+        }
+    }
+
+    void generateMaze(std::vector< std::vector< unsigned char > >& geom, int startSlice, int endSlice, int sliceRange, int posRange, int width) {
+        assert(havePath(GridPosition(startSlice - 1, 0), GridPosition(endSlice + 1, 0), geom, sliceSize, startSlice - 1, endSlice + 1));
+        for (int ii = startSlice; ii <= endSlice; ++ii) {
+            for (int jj = 0; jj < sliceSize; ++jj) {
+                geom[ii][jj] = 255;
+            }
+        }
+        assert(!havePath(GridPosition(startSlice - 1, 0), GridPosition(endSlice + 1, 0), geom, sliceSize, startSlice - 1, endSlice + 1));
+
+        const int quantize = 2 * width + 3;
+        while (!havePath(GridPosition(startSlice - 1, 0), GridPosition(endSlice + 1, 0), geom, sliceSize, startSlice - 1, endSlice + 1)) {
+            GridPosition gp(GetRandomValue(startSlice, endSlice), GetRandomValue(0, sliceSize - 1));
+            if (GetRandomValue(0, 10)) {
+                int randVal = GetRandomValue(2, posRange);
+                int secondPos = gp.positionInSlice + randVal;
+                setGridRange(
+                    geom, startSlice, endSlice, GridPosition(gp.slice - width, gp.positionInSlice),
+                    GridPosition(gp.slice + width, secondPos), 0, 1);
+            }
+            else {
+                int secondSlice = std::min(gp.positionInSlice + GetRandomValue(1, sliceRange), endSlice);
+                setGridRange(
+                    geom, startSlice, endSlice, GridPosition(gp.slice, gp.positionInSlice - width),
+                    GridPosition(secondSlice, gp.positionInSlice + width), 0, 1);
+            }
+        }
+    }
+
+    void generateMaze2(std::vector< std::vector< unsigned char > >& geom, int startSlice, int endSlice, int maxNumLines = 50, int quantizeSlice = 3, int quantizePos = 10) {
+        assert(havePath(GridPosition(startSlice - 1, 0), GridPosition(endSlice + 1, 0), geom, sliceSize, startSlice - 1, endSlice + 1));
+        for (int ii = startSlice; ii <= endSlice; ++ii) {
+            for (int jj = 0; jj < sliceSize; ++jj) {
+                geom[ii][jj] = 0;
+            }
+        }
+
+        int nLines = 0;
+        const int pQ = quantizePos;
+        const int sQ = quantizeSlice;
+        const int pW = 1;
+        const int sW = 0;
+        GridPosition startPos(startSlice - 1, 0);
+        GridPosition endPos(endSlice + 1, 0);
+
+        while (nLines < maxNumLines) {
+            ++nLines;
+            GridPosition newWallP0;
+            GridPosition newWallP1;
+            if (GetRandomValue(0, sliceSize + 2*(endSlice - startSlice)) < sliceSize) {
+                int pos1 = (GetRandomValue(0, sliceSize) / pQ) * pQ;
+                int pos2 = pos1 + (GetRandomValue(quantizePos * 3, sliceSize/8) / pQ) * pQ;
+                int slice = (GetRandomValue(startSlice, endSlice) / sQ) * sQ;
+                newWallP0 = GridPosition(slice - sW, pos1);
+                newWallP1 = GridPosition(slice + sW, pos2);
+            }
+            else {
+                int slice1 = (GetRandomValue(startSlice, endSlice) / sQ) * sQ;
+                int slice2 = slice1 + (GetRandomValue(1, (endSlice-startSlice)/10) / sQ) * sQ;
+                int pos = (GetRandomValue(0, sliceSize) / pQ) * pQ;
+                newWallP0 = GridPosition(slice1, pos - pW);
+                newWallP1 = GridPosition(slice2, pos + pW);
+            }
+            if (havePath(startPos, endPos, geom, sliceSize, startSlice - 1, endSlice + 1, newWallP0, newWallP1)) {
+                setGridRange(geom, startSlice, endSlice, newWallP0, newWallP1, 255);
+                assert(havePath(startPos, endPos, geom, sliceSize, startSlice - 1, endSlice + 1));
+            }
+                
+        }
+    }
+
+    void generateSlip(std::vector< std::vector< unsigned char > >& geom, int startSlice, int endSlice, const std::vector<int>& positions, int slipWidth, bool fill = true) {
+        if (fill) {
+            for (int ii = startSlice; ii <= endSlice; ++ii) {
+                for (int jj = 0; jj < sliceSize; ++jj) {
+                    geom[ii][jj] = 255;
+                }
+            }
+        }
+
+        const int slipWidthDiv2 = slipWidth / 2;
+        for (const auto& sp : positions) {
+            for (int ii = startSlice; ii <= endSlice; ++ii) {
+                const int start = sp - slipWidthDiv2;
+                const int end = start + slipWidth;
+                for (int jj = start; jj <= end; ++jj) {
+                    const int posInSlice = (jj + sliceSize) % sliceSize;
+                    geom[ii][posInSlice] = 0;
+                }
+            }
+        }
+    }
+
+    void generateRandoWithSlip(std::vector< std::vector< unsigned char > >& geom, int startSlice, int endSlice, int nPoints, int nSlips, int slipWidth) {
+        for (int ii = startSlice; ii < endSlice; ++ii) {
+            for (int jj = 0; jj < sliceSize; ++jj) {
+                geom[ii][jj] = 0;
+            }
+        }
+
+        for (int ii = 0; ii < nPoints; ++ii) {
+            geom[GetRandomValue(startSlice, endSlice)][GetRandomValue(0, sliceSize - 1)] = 255;
+        }
+
+        std::vector<int> randomSlipSpots;
+        for (int ii = 0; ii < nSlips; ++ii) {
+            randomSlipSpots.push_back(GetRandomValue(0, sliceSize - 1));
+        }
+        generateSlip(geom, startSlice, endSlice, randomSlipSpots, slipWidth, false);
+    }
+
+    void generateLevel() {
+        numSlices = 1000;
+        geom.resize(numSlices);
+        for (int ii = 0; ii < numSlices; ++ii) {
+            geom[ii].resize(sliceSize);
+            for (int jj = 0; jj < sliceSize; ++jj) {
+                geom[ii][jj] = 0;
+            }
+        }
+
+        auto everyN = [](int n, int sliceSize) -> std::vector<int> {
+            std::vector<int> result;
+            for (int ii = 0; ii < sliceSize; ii += n) {
+                result.push_back(ii);
+            }
+            return result;
+        };
+        std::vector< int > centerPositions{ sliceWidth / 2, sliceWidth + sliceHeight / 2, sliceWidth / 2 + sliceWidth + sliceHeight, sliceWidth * 2 + sliceHeight + sliceHeight / 2 };
+        std::vector< int > cornerPositions{ 0, sliceWidth, sliceWidth + sliceHeight, 2 * sliceWidth + sliceHeight };
+        int currSlice = 50;
+
+        for (int ii = 0; ii < 5; ++ii) {
+            generateSlip(geom, currSlice, currSlice, centerPositions, 40);
+            currSlice += 4;
+        }
+        for (int ii = 0; ii < 5; ++ii) {
+            generateSlip(geom, currSlice, currSlice, everyN(30, sliceSize), 10);
+            currSlice += 4;
+        }
+        currSlice += 10;
+        for (int ii = 0; ii < 5; ++ii) {
+            generateSlip(geom, currSlice, currSlice, centerPositions, 45);
+            currSlice += 4;
+            generateSlip(geom, currSlice, currSlice, cornerPositions, 60);
+            currSlice += 4;
+        }
+
+        currSlice += 10;
+        for (int ii = 0; ii < 20; ++ii) {
+            generateSlip(geom, currSlice, currSlice, everyN(50+ii/2, sliceSize+ii), 10);
+            currSlice += 4;
+        }
+
+        for (int ii = 0; ii < 5; ++ii) {
+            generateRandoWithSlip(geom, currSlice, currSlice + 10, 1000, 3, 15);
+            currSlice += 30;
+        }
+        currSlice += 20;
+        generateRandoWithSlip(geom, currSlice, currSlice + 100, 600, 3, 15);
+        currSlice += 130;
+
+//        void generateMaze2(std::vector< std::vector< unsigned char > >&geom, int startSlice, int endSlice, int maxNumLines = 50, int quantizeSlice = 3, int quantizePos = 10) {
+//        generateMaze2(geom, currSlice, currSlice + 50, 200);
+//        currSlice += 70;
+
+//        generateMaze2(geom, currSlice, currSlice + 150, 2000);
+//        currSlice += 170;
+
+        generateMaze2(geom, currSlice, currSlice + 150, 200, 10, 20);
+        currSlice += 170;
+
+        updateWorldGeom();
+    }
 
     bool collides(float testPlayerSlice, float testPlayerPosition) {
         auto testSinglePoint = [=](const SimSpacePosition& spp) -> bool {
+            //return false; //TODO: REMOVE THIS LINE!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
             int intSlice = static_cast<int>(floorf(spp.slice));
             int intSlicePosition = static_cast<int>(floorf(spp.positionInSlice));
             if (intSlice >= 0 && intSlice < static_cast<int>(geom.size())) {
@@ -684,14 +946,14 @@ void LevelGeometry::doRender()
             if (slice <= dangerZone) {
                 col = RED;
                 render = true;
-                float wave = 0.2f * (0.5f * sinf(float(slice) / 3.0f + float(gSimTick) * 0.15f) + 0.5);
+                float wave = 0.1f * (0.5f * sinf(float(slice) / 3.0f + float(gSimTick) * 0.4f) + 0.5f);
                 col.a = static_cast<unsigned char>(255.0f * (0.3 + wave));
             }
             else if (slice - dangerZone <= numWarningZones) {
                 float t = 1 - float(slice - dangerZone) / float(numWarningZones);
                 col = YELLOW;
                 render = true;
-                float wave = 0.2f * (0.5f * sinf(float(slice)/3.0f + float(gSimTick) * 0.15f) + 0.5);
+                float wave = 0.1f * (0.5f * sinf(float(slice)/3.0f + float(gSimTick) * 0.4f) + 0.5f);
                 col.a = static_cast<unsigned char>(255.0f * t * (0.3 + wave));
             }
         });
@@ -712,7 +974,8 @@ public:
         , transformer(lg.transformer)
         , noKill(false)
     {
-        lg.loadLevelFromImage("Content/test_level.png");
+        //lg.loadLevelFromImage("Content/test_level.png");
+        lg.generateLevel();
         lg.loadBackgroundImage("Content/test_level_bg.png");
         bump = LoadSound("Content/hitwall.wav");
         dangerSound = LoadSound("Content/bg_buzz.wav");
