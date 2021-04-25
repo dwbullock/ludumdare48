@@ -61,18 +61,28 @@ public:
 class Text : public Thing
 {
 public:
-    Text(const Color& color, const Vector2& position = { 0 }, const std::string str = "")
+    Text(const Color& color, const Vector2& position = { 0 }, const std::string str = "", int fontSize = 20, bool center = true)
         : Thing(position)
         , text(str)
+        , fontSize(fontSize)
+        , center(center)
         , color(color) {}
 
     virtual void doRender() override
     {
-        DrawText(text.c_str(), int(position.x), int(position.y), 20, color);
+        if (center) {
+            int width = MeasureText(text.c_str(), fontSize);
+            DrawText(text.c_str(), int(position.x)-width/2, int(position.y), fontSize, color);
+        }
+        else {
+            DrawText(text.c_str(), int(position.x), int(position.y), fontSize, color);
+        }
     }
 
     std::string text;
+    int fontSize;
     Color color;
+    bool center;
 };
 
 
@@ -539,6 +549,7 @@ public:
                 geom[ii][jj] = val;
             }
         }
+        winningZone = int(geom.size()) - 100;
         updateWorldGeom();
         UnloadImageColors(colors);
         UnloadImage(levelImage);
@@ -613,7 +624,7 @@ public:
             ++nLines;
             GridPosition newWallP0;
             GridPosition newWallP1;
-            if (GetRandomValue(0, sliceSize + 2*(endSlice - startSlice)) < sliceSize) {
+            if (GetRandomValue(0, sliceSize + 150) < sliceSize) {
                 int pos1 = (GetRandomValue(0, sliceSize) / pQ) * pQ;
                 int pos2 = pos1 + (GetRandomValue(quantizePos * 3, sliceSize/8) / pQ) * pQ;
                 int slice = (GetRandomValue(startSlice, endSlice) / sQ) * sQ;
@@ -622,7 +633,7 @@ public:
             }
             else {
                 int slice1 = (GetRandomValue(startSlice, endSlice) / sQ) * sQ;
-                int slice2 = slice1 + (GetRandomValue(1, (endSlice-startSlice)/10) / sQ) * sQ;
+                int slice2 = slice1 + (GetRandomValue(1, 20) / sQ) * sQ;
                 int pos = (GetRandomValue(0, sliceSize) / pQ) * pQ;
                 newWallP0 = GridPosition(slice1, pos - pW);
                 newWallP1 = GridPosition(slice2, pos + pW);
@@ -676,7 +687,7 @@ public:
     }
 
     void generateLevel() {
-        numSlices = 1000;
+        numSlices = 2000;
         geom.resize(numSlices);
         for (int ii = 0; ii < numSlices; ++ii) {
             geom[ii].resize(sliceSize);
@@ -725,7 +736,7 @@ public:
         currSlice += 20;
         generateRandoWithSlip(geom, currSlice, currSlice + 100, 600, 3, 15);
         currSlice += 130;
-
+        
 //        void generateMaze2(std::vector< std::vector< unsigned char > >&geom, int startSlice, int endSlice, int maxNumLines = 50, int quantizeSlice = 3, int quantizePos = 10) {
 //        generateMaze2(geom, currSlice, currSlice + 50, 200);
 //        currSlice += 70;
@@ -736,6 +747,17 @@ public:
         generateMaze2(geom, currSlice, currSlice + 150, 200, 10, 20);
         currSlice += 170;
 
+        generateMaze2(geom, currSlice, currSlice + 50, 120, 5, 20);
+        currSlice += 60;
+        generateMaze2(geom, currSlice, currSlice + 50, 120, 5, 20);
+        currSlice += 60;
+        generateMaze2(geom, currSlice, currSlice + 50, 120, 5, 20);
+        currSlice += 60;
+        generateMaze2(geom, currSlice, currSlice + 50, 120, 5, 20);
+        currSlice += 60;
+
+        currSlice += 40;
+        winningZone = currSlice;
         updateWorldGeom();
     }
 
@@ -788,6 +810,18 @@ public:
         backgroundImage.reset(new SafeImage(fname));
     }
 
+    void drawBackground() {
+        if (backgroundImage.get()) {
+            DrawAllGrid(transformer.screenCenter, transformer.sliceAtCenter, [=](int slice, int sliceIndex, Color& col, bool& render) {
+                render = false;
+                if (slice >= 0 && slice < backgroundImage->image.width && sliceIndex >= 0 && sliceIndex < backgroundImage->image.height) {
+                    col = backgroundImage->color(slice, sliceIndex);
+                    render = true;
+                }
+                });
+        }
+    }
+
     // sim space constants
     int numSlices = 3000; // number of individual slices down the 'z' axis
 
@@ -825,6 +859,7 @@ public:
     int dangerZone; // zone in which player is killed
     const int startingDangerZone = -40;
     int numWarningZones = 50;
+    int winningZone;
 
     // Visuals
     std::unique_ptr<SafeImage> backgroundImage;
@@ -832,7 +867,6 @@ public:
     LevelTransformer transformer;
 
   private:
-
       void DrawPlayer(const Vector2& screenCenter, float sliceAtCenter)
       {
           SimSpacePosition sp0, sp1, sp2, sp3;
@@ -930,21 +964,19 @@ void LevelGeometry::doRender()
 
 
     //DrawGrid(screenCenter, sliceAtCenter, [](int, int, Color& col, bool& render) {col = RED; render = true; });
-    if (backgroundImage.get()) {
-        DrawAllGrid(screenCenter, sliceAtCenter, [=](int slice, int sliceIndex, Color& col, bool& render) {
-                render = false;
-                if (slice >= 0 && slice < backgroundImage->image.width && sliceIndex >= 0 && sliceIndex < backgroundImage->image.height) {
-                    col = backgroundImage->color(slice, sliceIndex);
-                    render = true;
-                }
-            });
-    }
+    drawBackground();
     DrawGridSolid(screenCenter, sliceAtCenter, RED);
     DrawPlayer(screenCenter, sliceAtCenter);
     DrawAllGrid(screenCenter, sliceAtCenter, [=](int slice, int sliceIndex, Color& col, bool& render) {
             render = false;
             if (slice <= dangerZone) {
                 col = RED;
+                render = true;
+                float wave = 0.1f * (0.5f * sinf(float(slice) / 3.0f + float(gSimTick) * 0.4f) + 0.5f);
+                col.a = static_cast<unsigned char>(255.0f * (0.3 + wave));
+            }
+            else if (slice >= winningZone) {
+                col = GREEN;
                 render = true;
                 float wave = 0.1f * (0.5f * sinf(float(slice) / 3.0f + float(gSimTick) * 0.4f) + 0.5f);
                 col.a = static_cast<unsigned char>(255.0f * (0.3 + wave));
@@ -962,9 +994,42 @@ void LevelGeometry::doRender()
 class GameState
 {
 public:
+    GameState()
+        : finished(false)
+    {
+        if (!gsInit) {
+            bump = LoadSound("Content/hitwall.wav");
+            dangerSound = LoadSound("Content/bg_buzz.wav");
+            deathSound = LoadSound("Content/explosion.wav");
+            winSound = LoadSound("Content/win.wav");
+        }
+    }
+    virtual void Sim(float simTimeSeconds) = 0;
+    virtual void Render() = 0;
+
+    // not thread safe
+    bool finished;
+    static Sound bump;
+    static Sound winSound;
+    static Sound dangerSound;
+    static Sound deathSound;
+
+private:
+    static bool gsInit;
+};
+
+bool GameState::gsInit = false;
+Sound GameState::bump;
+Sound GameState::winSound;
+Sound GameState::dangerSound;
+Sound GameState::deathSound;
+
+class LevelGameState : public GameState
+{
+public:
     enum class PlayerDirection { CCW, CW, IN, OUT, NONE };
 
-    GameState()
+    LevelGameState()
         : playerDirection(PlayerDirection::IN)
         , simTick(0)
         , debugText(WHITE, {30, 30})
@@ -973,24 +1038,22 @@ public:
         , playerDead(false)
         , transformer(lg.transformer)
         , noKill(false)
+        , gameWon(false)
+        , finalCountdown(-1)
     {
         //lg.loadLevelFromImage("Content/test_level.png");
         lg.generateLevel();
         lg.loadBackgroundImage("Content/test_level_bg.png");
-        bump = LoadSound("Content/hitwall.wav");
-        dangerSound = LoadSound("Content/bg_buzz.wav");
-        deathSound = LoadSound("Content/explosion.wav");
 
         debugText.display = false;
         pausedText.display = false;
     }
 
-    ~GameState()
+    ~LevelGameState()
     {
-        UnloadSound(bump);
     }
 
-    void Sim(float simTimeSeconds) {
+    void Sim(float simTimeSeconds) override {
         gSimTick = simTick;
         const float playerHorizontalSpeed = 0.75;
         const float playerVerticalSpeed = 0.5;
@@ -1003,6 +1066,16 @@ public:
         }
         if (paused)
             return;
+
+        if (finalCountdown == 0) {
+            finished = true;
+        }
+        else if (finalCountdown > 0) {
+            --finalCountdown;
+        }
+        if (finalCountdown < 0 && (gameWon || playerDead)) {
+            finalCountdown = 60 * 5; // 5 seconds
+        }
 
         if (playerDead) {
             explosion.simit(simTick);
@@ -1054,6 +1127,10 @@ public:
             PlaySound(deathSound);
         }
 
+        if (!gameWon && lg.playerSlice > lg.winningZone) {
+            gameWon = true;
+            PlaySound(winSound);
+        }
 
         std::stringstream ss;
         ss << "Sim tick " << simTick << ", Player: (" << lg.playerSlice << ", " << lg.playerPosition << ")";
@@ -1061,7 +1138,7 @@ public:
         simTick++;
     }
 
-    void Render() {
+    void Render() override {
         const float centerX = static_cast<float>(GetScreenWidth() / 2);
         const float centerY = static_cast<float>(GetScreenHeight() / 2);
         transformer.screenCenter = Vector2{ centerX, centerY };
@@ -1090,14 +1167,63 @@ public:
     bool paused;
     bool playerDead;
     bool noKill;
+    bool gameWon;
+    int finalCountdown; // -1 disabled, num sims to final
 
-    Sound bump;
-    Sound dangerSound;
-    Sound deathSound;
     LevelTransformer transformer;
     Explosion explosion;
 };
 
+class TitleScreenGameState : public LevelGameState
+{
+public:
+    enum class PlayerDirection { CCW, CW, IN, OUT, NONE };
+
+    TitleScreenGameState()
+        : tick(0)
+        , titleText(WHITE, { float(GetScreenWidth()/2), float(GetScreenHeight()/4) }, "In", 100)
+        , title2Text(WHITE, { float(GetScreenWidth() / 2), float(GetScreenHeight() / 4 + 120) }, "(Ludum Dare #48)", 20)
+        , instructions(WHITE, { float(GetScreenWidth() / 2), float(GetScreenHeight() - 60 ) }, "Space to start game. 'k' during game to disable kill wall, 'p' to pause.", 20)
+    {
+        lg.loadBackgroundImage("Content/test_level_bg.png");
+    }
+
+    ~TitleScreenGameState()
+    {
+    }
+
+    void Sim(float simTimeSeconds) override {
+        if (IsKeyPressed(KEY_SPACE)) {
+            finished = true;
+        }
+        lg.playerSlice += 0.5f;
+        ++tick;
+    }
+
+    void Render() override {
+        const float centerX = static_cast<float>(GetScreenWidth() / 2);
+        const float centerY = static_cast<float>(GetScreenHeight() / 2);
+        transformer.screenCenter = Vector2{ centerX, centerY };
+        transformer.slicesPerScreen = lg.slicesPerScreen;
+        transformer.sliceAtCenter = lg.playerSlice + lg.slicesBeforePlayer;
+
+        lg.transformer = transformer;
+        explosion.transform = transformer;
+
+        BeginDrawing();
+        ClearBackground(BLACK);
+        lg.drawBackground();
+        titleText.render();
+        title2Text.render();
+        instructions.render();
+        EndDrawing();
+    }
+
+    int tick;
+    Text titleText;
+    Text title2Text;
+    Text instructions;
+};
 
 
 
@@ -1115,14 +1241,23 @@ int main(void)
     InitAudioDevice();
     SetTargetFPS(fps);
 
-    // Main game loop
-    GameState gameState;
     while (!IsAudioDeviceReady()) std::this_thread::sleep_for(std::chrono::milliseconds(20));
     SetMasterVolume(0.5);
-    while (!WindowShouldClose())    // Detect window close button or ESC key
+
+    // Main game loop
     {
-        gameState.Sim(simTimeSeconds);
-        gameState.Render();
+        bool inTitleScreen = true;
+        std::unique_ptr<GameState> gameState(new TitleScreenGameState);
+        while (!WindowShouldClose())    // Detect window close button or ESC key
+        {
+            if (gameState->finished) {
+                if (inTitleScreen) gameState.reset(new LevelGameState);
+                else gameState.reset(new TitleScreenGameState);
+                inTitleScreen = !inTitleScreen;
+            }
+            gameState->Sim(simTimeSeconds);
+            gameState->Render();
+        }
     }
 
     CloseWindow();        // Close window and OpenGL context
