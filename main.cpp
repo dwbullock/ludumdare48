@@ -1,7 +1,6 @@
 /*******************************************************************************************
 * (c) 2021 DancesWE
 * 
-* Die when red hits you.
 * Sparks on player
 * Phase in/out on energy zone
 * Procedural maps
@@ -24,6 +23,8 @@
 #include <assert.h>
 #include "raylib.h"
 #include "raymath.h"
+
+int gSimTick = 0;
 
 class Thing
 {
@@ -365,7 +366,7 @@ public:
                 Vector2 ptSim = Vector2Lerp(pa, pb, tt);
                 pts.push_back(transform.simToScreen(ptSim.x, ptSim.y));
             }
-            float aa = 255;
+            unsigned char aa = 255;
             if (count*2 > 50) {
                 aa = std::max(0, 255 + 50 - count*2);
             }
@@ -374,7 +375,7 @@ public:
                 DrawLineV(pts[ii], pts[ii+1], color);
             }
         }
-    };
+    } SimElement;
 
     Explosion()
     {
@@ -683,13 +684,15 @@ void LevelGeometry::doRender()
             if (slice <= dangerZone) {
                 col = RED;
                 render = true;
-                col.a = static_cast<unsigned char>(255.0f * 0.4f);
+                float wave = 0.2f * (0.5f * sinf(float(slice) / 3.0f + float(gSimTick) * 0.15f) + 0.5);
+                col.a = static_cast<unsigned char>(255.0f * (0.3 + wave));
             }
             else if (slice - dangerZone <= numWarningZones) {
                 float t = 1 - float(slice - dangerZone) / float(numWarningZones);
                 col = YELLOW;
-                col.a = static_cast<unsigned char>(255.0f * 0.4f * t);
                 render = true;
+                float wave = 0.2f * (0.5f * sinf(float(slice)/3.0f + float(gSimTick) * 0.15f) + 0.5);
+                col.a = static_cast<unsigned char>(255.0f * t * (0.3 + wave));
             }
         });
 }
@@ -725,6 +728,7 @@ public:
     }
 
     void Sim(float simTimeSeconds) {
+        gSimTick = simTick;
         const float playerHorizontalSpeed = 0.75;
         const float playerVerticalSpeed = 0.5;
 
@@ -839,8 +843,8 @@ int main(void)
 {
     // Initialization
     //--------------------------------------------------------------------------------------
-    const int screenWidth = 1200;
-    const int screenHeight = 900;
+    const int screenWidth = 800;
+    const int screenHeight = 600;
     const int fps = 60;
     float simTimeSeconds = 1.0f / static_cast<float>(fps);
 
