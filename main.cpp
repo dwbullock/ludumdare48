@@ -10,6 +10,9 @@
 * Music
 * Intro screen
 * Momentum for play
+* 
+* emcc main2.cpp -s WASM=1 -o pixin.html -L lib -I include -l raylib -s USE_GLFW=3 -s ASYNCIFY
+* python -m http.server 7801
 *
 ********************************************************************************************/
 
