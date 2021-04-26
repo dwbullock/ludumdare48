@@ -494,7 +494,7 @@ class LevelGeometry : public Thing
 public:
     LevelGeometry()
         : Thing()
-        , playerPosition(static_cast<float>(sliceWidth + sliceWidth / 2 + sliceHeight))
+        , playerPosition(static_cast<float>(sliceWidth / 2))
         , playerColor({ 45,227,191,255 })
         , playerSlice(10.0f)
         , numSlices(3000)
@@ -730,11 +730,11 @@ public:
         }
 
         for (int ii = 0; ii < 5; ++ii) {
-            generateRandoWithSlip(geom, currSlice, currSlice + 10, 1000, 3, 15);
+            generateRandoWithSlip(geom, currSlice, currSlice + 10, 50, 3, 15);
             currSlice += 30;
         }
         currSlice += 20;
-        generateRandoWithSlip(geom, currSlice, currSlice + 100, 600, 3, 15);
+        generateRandoWithSlip(geom, currSlice, currSlice + 100, 100, 3, 15);
         currSlice += 130;
         
 //        void generateMaze2(std::vector< std::vector< unsigned char > >&geom, int startSlice, int endSlice, int maxNumLines = 50, int quantizeSlice = 3, int quantizePos = 10) {
@@ -763,7 +763,7 @@ public:
 
     bool collides(float testPlayerSlice, float testPlayerPosition) {
         auto testSinglePoint = [=](const SimSpacePosition& spp) -> bool {
-            //return false; //TODO: REMOVE THIS LINE!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+            //return false; //TODO: COMMENT THIS LINE!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
             int intSlice = static_cast<int>(floorf(spp.slice));
             int intSlicePosition = static_cast<int>(floorf(spp.positionInSlice));
             if (intSlice >= 0 && intSlice < static_cast<int>(geom.size())) {
@@ -1181,9 +1181,10 @@ public:
 
     TitleScreenGameState()
         : tick(0)
-        , titleText(WHITE, { float(GetScreenWidth()/2), float(GetScreenHeight()/4) }, "In", 100)
+        , titleText(WHITE, { float(GetScreenWidth()/2), float(GetScreenHeight()/4) }, "Pix'in'", 100)
         , title2Text(WHITE, { float(GetScreenWidth() / 2), float(GetScreenHeight() / 4 + 120) }, "(Ludum Dare #48)", 20)
-        , instructions(WHITE, { float(GetScreenWidth() / 2), float(GetScreenHeight() - 60 ) }, "Space to start game. 'k' during game to disable kill wall, 'p' to pause.", 20)
+        , instructions(WHITE, { float(GetScreenWidth() / 2), float(GetScreenHeight() - 90) }, "Space to start game. 'k' during game to disable kill wall, 'p' to pause,", 20)
+        , instructions2(WHITE, { float(GetScreenWidth() / 2), float(GetScreenHeight() - 60) }, "left/right/up/down arrows for counter-clockwise/clockwise/in/out.", 20)
     {
         lg.loadBackgroundImage("Content/test_level_bg.png");
     }
@@ -1216,6 +1217,7 @@ public:
         titleText.render();
         title2Text.render();
         instructions.render();
+        instructions2.render();
         EndDrawing();
     }
 
@@ -1223,6 +1225,7 @@ public:
     Text titleText;
     Text title2Text;
     Text instructions;
+    Text instructions2;
 };
 
 
