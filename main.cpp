@@ -725,7 +725,7 @@ public:
 
         currSlice += 10;
         for (int ii = 0; ii < 20; ++ii) {
-            generateSlip(geom, currSlice, currSlice, everyN(50+ii/2, sliceSize+ii), 10);
+            generateSlip(geom, currSlice, currSlice, everyN(50 + ii / 2, sliceSize + ii), 10);
             currSlice += 4;
         }
 
@@ -736,13 +736,13 @@ public:
         currSlice += 20;
         generateRandoWithSlip(geom, currSlice, currSlice + 100, 100, 3, 15);
         currSlice += 130;
-        
-//        void generateMaze2(std::vector< std::vector< unsigned char > >&geom, int startSlice, int endSlice, int maxNumLines = 50, int quantizeSlice = 3, int quantizePos = 10) {
-//        generateMaze2(geom, currSlice, currSlice + 50, 200);
-//        currSlice += 70;
 
-//        generateMaze2(geom, currSlice, currSlice + 150, 2000);
-//        currSlice += 170;
+        //        void generateMaze2(std::vector< std::vector< unsigned char > >&geom, int startSlice, int endSlice, int maxNumLines = 50, int quantizeSlice = 3, int quantizePos = 10) {
+        //        generateMaze2(geom, currSlice, currSlice + 50, 200);
+        //        currSlice += 70;
+
+        //        generateMaze2(geom, currSlice, currSlice + 150, 2000);
+        //        currSlice += 170;
 
         generateMaze2(geom, currSlice, currSlice + 150, 200, 10, 20);
         currSlice += 170;
@@ -755,6 +755,48 @@ public:
         currSlice += 60;
         generateMaze2(geom, currSlice, currSlice + 50, 120, 5, 20);
         currSlice += 60;
+
+        currSlice += 40;
+        winningZone = currSlice;
+        updateWorldGeom();
+    }
+
+    void generateLevel2() {
+        numSlices = 2000;
+        geom.resize(numSlices);
+        for (int ii = 0; ii < numSlices; ++ii) {
+            geom[ii].resize(sliceSize);
+            for (int jj = 0; jj < sliceSize; ++jj) {
+                geom[ii][jj] = 0;
+            }
+        }
+
+        int currSlice = 50;
+
+        for (int ii = 0; ii < 10; ++ii) {
+            generateMaze2(geom, currSlice, currSlice + 50, 60, 5, 20);
+            currSlice += 60;
+        }
+
+        currSlice += 40;
+        winningZone = currSlice;
+        updateWorldGeom();
+    }
+
+    void generateLevel3() {
+        numSlices = 2000;
+        geom.resize(numSlices);
+        for (int ii = 0; ii < numSlices; ++ii) {
+            geom[ii].resize(sliceSize);
+            for (int jj = 0; jj < sliceSize; ++jj) {
+                geom[ii][jj] = 0;
+            }
+        }
+
+        int currSlice = 50;
+
+        generateMaze2(geom, currSlice, currSlice + 500, 800, 8, 20);
+        currSlice += 520;
 
         currSlice += 40;
         winningZone = currSlice;
@@ -1029,7 +1071,7 @@ class LevelGameState : public GameState
 public:
     enum class PlayerDirection { CCW, CW, IN, OUT, NONE };
 
-    LevelGameState()
+    LevelGameState(int level = 0)
         : playerDirection(PlayerDirection::IN)
         , simTick(0)
         , debugText(WHITE, {30, 30})
@@ -1042,7 +1084,15 @@ public:
         , finalCountdown(-1)
     {
         //lg.loadLevelFromImage("Content/test_level.png");
-        lg.generateLevel();
+        if (level == 0) {
+            lg.generateLevel();
+        }
+        else if (level == 1) {
+            lg.generateLevel2();
+        }
+        else {
+            lg.generateLevel3();
+        }
         lg.loadBackgroundImage("Content/test_level_bg.png");
 
         debugText.display = false;
@@ -1185,6 +1235,10 @@ public:
         , title2Text(WHITE, { float(GetScreenWidth() / 2), float(GetScreenHeight() / 4 + 120) }, "(Ludum Dare #48)", 20)
         , instructions(WHITE, { float(GetScreenWidth() / 2), float(GetScreenHeight() - 90) }, "Space to start game. 'k' during game to disable kill wall, 'p' to pause,", 20)
         , instructions2(WHITE, { float(GetScreenWidth() / 2), float(GetScreenHeight() - 60) }, "left/right/up/down arrows for counter-clockwise/clockwise/in/out.", 20)
+        , level1(WHITE, { float(GetScreenWidth() / 2), float(GetScreenHeight() / 2 + 20) }, "Simple Level", 20)
+        , level2(WHITE, { float(GetScreenWidth() / 2), float(GetScreenHeight() / 2 + 45) }, "Rando Maze", 20)
+        , level3(WHITE, { float(GetScreenWidth() / 2), float(GetScreenHeight() / 2 + 70) }, "Rando Maze Hard (takes ~10 seconds)", 20)
+        , currLevel(0)
     {
         lg.loadBackgroundImage("Content/test_level_bg.png");
     }
@@ -1194,8 +1248,14 @@ public:
     }
 
     void Sim(float simTimeSeconds) override {
-        if (IsKeyPressed(KEY_SPACE)) {
+        if (IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ENTER)) {
             finished = true;
+        }
+        if (IsKeyPressed(KEY_UP)) {
+            currLevel = (currLevel + 2) % 3;
+        }
+        if (IsKeyPressed(KEY_DOWN)) {
+            currLevel = (currLevel + 1) % 3;
         }
         lg.playerSlice += 0.5f;
         ++tick;
@@ -1208,6 +1268,20 @@ public:
         transformer.slicesPerScreen = lg.slicesPerScreen;
         transformer.sliceAtCenter = lg.playerSlice + lg.slicesBeforePlayer;
 
+        level1.color = GRAY;
+        level2.color = GRAY;
+        level3.color = GRAY;
+        if (currLevel == 0) {
+            level1.color = GREEN;
+        }
+        else if (currLevel == 1) {
+            level2.color = GREEN;
+        }
+        else {
+            level3.color = GREEN;
+        }
+
+
         lg.transformer = transformer;
         explosion.transform = transformer;
 
@@ -1218,6 +1292,9 @@ public:
         title2Text.render();
         instructions.render();
         instructions2.render();
+        level1.render();
+        level2.render();
+        level3.render();
         EndDrawing();
     }
 
@@ -1226,6 +1303,11 @@ public:
     Text title2Text;
     Text instructions;
     Text instructions2;
+
+    Text level1;
+    Text level2;
+    Text level3;
+    int currLevel;
 };
 
 
@@ -1254,8 +1336,17 @@ int main(void)
         while (!WindowShouldClose())    // Detect window close button or ESC key
         {
             if (gameState->finished) {
-                if (inTitleScreen) gameState.reset(new LevelGameState);
-                else gameState.reset(new TitleScreenGameState);
+                if (inTitleScreen) {
+                    int level = 0;
+                    {
+                        auto gs = dynamic_cast<TitleScreenGameState*>(gameState.get());
+                        if (gs) level = gs->currLevel;
+                    }
+                    gameState.reset(new LevelGameState(level));
+                }
+                else {
+                    gameState.reset(new TitleScreenGameState);
+                }
                 inTitleScreen = !inTitleScreen;
             }
             gameState->Sim(simTimeSeconds);
