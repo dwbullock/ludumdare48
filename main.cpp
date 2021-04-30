@@ -1134,11 +1134,11 @@ public:
             explosion.simit(simTick);
             return;
         }
-        
-        if (IsKeyDown(KEY_UP)) playerDirection = PlayerDirection::IN;
-        if (IsKeyDown(KEY_DOWN)) playerDirection = PlayerDirection::OUT;
-        if (IsKeyDown(KEY_LEFT)) playerDirection = PlayerDirection::CCW;
-        if (IsKeyDown(KEY_RIGHT)) playerDirection = PlayerDirection::CW;
+ 
+        if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W)) playerDirection = PlayerDirection::IN;
+        if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S)) playerDirection = PlayerDirection::OUT;
+        if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A)) playerDirection = PlayerDirection::CCW;
+        if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D)) playerDirection = PlayerDirection::CW;
         bool wasCollision = false;
         if (playerDirection == PlayerDirection::IN) {
             wasCollision = lg.incrPlayerSlice(playerVerticalSpeed);
@@ -1254,10 +1254,10 @@ public:
         if (IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ENTER)) {
             finished = true;
         }
-        if (IsKeyPressed(KEY_UP)) {
+        if (IsKeyPressed(KEY_UP) || IsKeyPressed(KEY_W)) {
             currLevel = (currLevel + 2) % 3;
         }
-        if (IsKeyPressed(KEY_DOWN)) {
+        if (IsKeyPressed(KEY_DOWN) || IsKeyPressed(KEY_S)) {
             currLevel = (currLevel + 1) % 3;
         }
         lg.playerSlice += 0.5f;
