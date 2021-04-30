@@ -1135,10 +1135,39 @@ public:
             return;
         }
  
-        if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W)) playerDirection = PlayerDirection::IN;
-        if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S)) playerDirection = PlayerDirection::OUT;
-        if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A)) playerDirection = PlayerDirection::CCW;
-        if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D)) playerDirection = PlayerDirection::CW;
+        if (classicControls) {
+            if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W)) playerDirection = PlayerDirection::IN;
+            if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S)) playerDirection = PlayerDirection::OUT;
+            if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A)) playerDirection = PlayerDirection::CCW;
+            if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D)) playerDirection = PlayerDirection::CW;
+        }
+        else {
+            if (lg.playerPosition < lg.sliceWidth) {
+                if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W)) playerDirection = PlayerDirection::OUT;
+                if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S)) playerDirection = PlayerDirection::IN;
+                if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A)) playerDirection = PlayerDirection::CCW;
+                if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D)) playerDirection = PlayerDirection::CW;
+            }
+            else if (lg.playerPosition < lg.sliceWidth + lg.sliceHeight) {
+                if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W)) playerDirection = PlayerDirection::CCW;
+                if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S)) playerDirection = PlayerDirection::CW;
+                if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A)) playerDirection = PlayerDirection::IN;
+                if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D)) playerDirection = PlayerDirection::OUT;
+            }
+            else if (lg.playerPosition < 2*lg.sliceWidth + lg.sliceHeight) {
+                if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W)) playerDirection = PlayerDirection::IN;
+                if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S)) playerDirection = PlayerDirection::OUT;
+                if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A)) playerDirection = PlayerDirection::CW;
+                if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D)) playerDirection = PlayerDirection::CCW;
+            }
+            else {
+                if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W)) playerDirection = PlayerDirection::CW;
+                if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S)) playerDirection = PlayerDirection::CCW;
+                if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A)) playerDirection = PlayerDirection::OUT;
+                if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D)) playerDirection = PlayerDirection::IN;
+            }
+        }
+
         bool wasCollision = false;
         if (playerDirection == PlayerDirection::IN) {
             wasCollision = lg.incrPlayerSlice(playerVerticalSpeed);
@@ -1223,9 +1252,13 @@ public:
     bool gameWon;
     int finalCountdown; // -1 disabled, num sims to final
 
+    static bool classicControls;
+
     LevelTransformer transformer;
     Explosion explosion;
 };
+
+bool LevelGameState::classicControls = false;
 
 class TitleScreenGameState : public LevelGameState
 {
@@ -1241,6 +1274,7 @@ public:
         , level1(WHITE, { float(GetScreenWidth() / 2), float(GetScreenHeight() / 2 + 20) }, "Simple Level", 20)
         , level2(WHITE, { float(GetScreenWidth() / 2), float(GetScreenHeight() / 2 + 45) }, "Rando Maze", 20)
         , level3(WHITE, { float(GetScreenWidth() / 2), float(GetScreenHeight() / 2 + 70) }, "Rando Maze Hard (takes ~10 seconds)", 20)
+        , controlsText(WHITE, { float(GetScreenWidth() / 2), float(GetScreenHeight() / 2 + 115) }, "", 20)
         , currLevel(0)
     {
         lg.loadBackgroundImage("Content/test_level_bg.png");
@@ -1252,13 +1286,16 @@ public:
 
     void Sim(float simTimeSeconds) override {
         if (IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ENTER)) {
-            finished = true;
+            if (currLevel != 3)
+                finished = true;
+            else
+                classicControls = !classicControls;
         }
         if (IsKeyPressed(KEY_UP) || IsKeyPressed(KEY_W)) {
-            currLevel = (currLevel + 2) % 3;
+            currLevel = (currLevel + 3) % 4;
         }
         if (IsKeyPressed(KEY_DOWN) || IsKeyPressed(KEY_S)) {
-            currLevel = (currLevel + 1) % 3;
+            currLevel = (currLevel + 1) % 4;
         }
         lg.playerSlice += 0.5f;
         ++tick;
@@ -1274,14 +1311,18 @@ public:
         level1.color = GRAY;
         level2.color = GRAY;
         level3.color = GRAY;
+        controlsText.color = GRAY;
         if (currLevel == 0) {
             level1.color = GREEN;
         }
         else if (currLevel == 1) {
             level2.color = GREEN;
         }
-        else {
+        else if (currLevel == 2) {
             level3.color = GREEN;
+        }
+        else {
+            controlsText.color = GREEN;
         }
 
 
@@ -1298,6 +1339,13 @@ public:
         level1.render();
         level2.render();
         level3.render();
+        if (classicControls) {
+            controlsText.text = "Controls: Classic";
+        }
+        else {
+            controlsText.text = "Controls: Direct";
+        }
+        controlsText.render();
         EndDrawing();
     }
 
@@ -1306,6 +1354,7 @@ public:
     Text title2Text;
     Text instructions;
     Text instructions2;
+    Text controlsText;
 
     Text level1;
     Text level2;
