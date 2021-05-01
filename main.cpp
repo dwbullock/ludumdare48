@@ -925,8 +925,12 @@ public:
           const Vector2 p1 = transformer.worldToScreen(player1World);
           const Vector2 p2 = transformer.worldToScreen(player2World);
           const Vector2 p3 = transformer.worldToScreen(player3World);
-          DrawTriangle(p0, p1, p2, playerColor);
-          DrawTriangle(p0, p2, p3, playerColor);
+          const Vector2 p12 = Vector2Lerp(p1, p2, 0.6f);
+          const Vector2 p03 = Vector2Lerp(p0, p3, 0.6f);
+          DrawTriangle(p0, p1, p12, playerColor);
+          DrawTriangle(p0, p12, p03, playerColor);
+          DrawTriangle(p03, p12, p2, BLUE);
+          DrawTriangle(p03, p2, p3, BLUE);
       }
 
       void DrawAllGrid(const Vector2& screenCenter, float sliceAtCenter, std::function<void(int, int, Color&, bool&)> ColorCallback)
