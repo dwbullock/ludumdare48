@@ -1085,6 +1085,11 @@ public:
         , noKill(false)
         , gameWon(false)
         , finalCountdown(-1)
+        , currPlayerHorizontalSpeed(0)
+        , currPlayerVerticalSpeed(playerVerticalSpeed)
+        , desiredPlayerHorizontalSpeed(0)
+        , desiredPlayerVerticalSpeed(playerVerticalSpeed)
+
     {
         //lg.loadLevelFromImage("Content/test_level.png");
         if (level == 0) {
@@ -1108,11 +1113,9 @@ public:
 
     void Sim(float simTimeSeconds) override {
         gSimTick = simTick;
-        const float playerHorizontalSpeed = 0.75;
-        const float playerVerticalSpeed = 0.5;
 
         if (IsKeyPressed(KEY_K)) noKill = !noKill;
-        if (IsKeyPressed(KEY_D)) debugText.display = !debugText.display;
+        if (IsKeyPressed(KEY_ZERO)) debugText.display = !debugText.display;
         if (IsKeyPressed(KEY_P)) {
             paused = !paused;
             pausedText.display = paused;
@@ -1134,56 +1137,92 @@ public:
             explosion.simit(simTick);
             return;
         }
+
+        auto setPlayerDir = [=](PlayerDirection dir) {
+            const float verticalSpeedContiniousScale = 0.5f;
+                playerDirection = dir;
+            if (dir == PlayerDirection::IN)
+                desiredPlayerVerticalSpeed = playerVerticalSpeed * verticalSpeedContiniousScale;
+            else if (dir == PlayerDirection::OUT)
+                desiredPlayerVerticalSpeed = -playerVerticalSpeed * verticalSpeedContiniousScale;
+            else if (dir == PlayerDirection::CCW)
+                desiredPlayerHorizontalSpeed = -playerHorizontalSpeed;
+            else if (dir == PlayerDirection::CW)
+                desiredPlayerHorizontalSpeed = playerHorizontalSpeed;
+            else
+                desiredPlayerHorizontalSpeed = desiredPlayerVerticalSpeed = 0;;
+        };
  
         if (classicControls) {
-            if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W)) playerDirection = PlayerDirection::IN;
-            if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S)) playerDirection = PlayerDirection::OUT;
-            if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A)) playerDirection = PlayerDirection::CCW;
-            if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D)) playerDirection = PlayerDirection::CW;
+            if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W)) setPlayerDir(PlayerDirection::IN);
+            if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S)) setPlayerDir(PlayerDirection::OUT);
+            if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A)) setPlayerDir(PlayerDirection::CCW);
+            if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D)) setPlayerDir(PlayerDirection::CW);
         }
         else {
             if (lg.playerPosition < lg.sliceWidth) {
-                if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W)) playerDirection = PlayerDirection::OUT;
-                if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S)) playerDirection = PlayerDirection::IN;
-                if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A)) playerDirection = PlayerDirection::CCW;
-                if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D)) playerDirection = PlayerDirection::CW;
+                if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W)) setPlayerDir(PlayerDirection::OUT);
+                if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S)) setPlayerDir(PlayerDirection::IN);
+                if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A)) setPlayerDir(PlayerDirection::CCW);
+                if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D)) setPlayerDir(PlayerDirection::CW);
             }
             else if (lg.playerPosition < lg.sliceWidth + lg.sliceHeight) {
-                if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W)) playerDirection = PlayerDirection::CCW;
-                if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S)) playerDirection = PlayerDirection::CW;
-                if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A)) playerDirection = PlayerDirection::IN;
-                if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D)) playerDirection = PlayerDirection::OUT;
+                if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W)) setPlayerDir(PlayerDirection::CCW);
+                if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S)) setPlayerDir(PlayerDirection::CW);
+                if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A)) setPlayerDir(PlayerDirection::IN);
+                if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D)) setPlayerDir(PlayerDirection::OUT);
             }
             else if (lg.playerPosition < 2*lg.sliceWidth + lg.sliceHeight) {
-                if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W)) playerDirection = PlayerDirection::IN;
-                if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S)) playerDirection = PlayerDirection::OUT;
-                if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A)) playerDirection = PlayerDirection::CW;
-                if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D)) playerDirection = PlayerDirection::CCW;
+                if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W)) setPlayerDir(PlayerDirection::IN);
+                if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S)) setPlayerDir(PlayerDirection::OUT);
+                if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A)) setPlayerDir(PlayerDirection::CW);
+                if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D)) setPlayerDir(PlayerDirection::CCW);
             }
             else {
-                if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W)) playerDirection = PlayerDirection::CW;
-                if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S)) playerDirection = PlayerDirection::CCW;
-                if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A)) playerDirection = PlayerDirection::OUT;
-                if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D)) playerDirection = PlayerDirection::IN;
+                if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W)) setPlayerDir(PlayerDirection::CW);
+                if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S)) setPlayerDir(PlayerDirection::CCW);
+                if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A)) setPlayerDir(PlayerDirection::OUT);
+                if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D)) setPlayerDir(PlayerDirection::IN);
             }
         }
 
-        bool wasCollision = false;
-        if (playerDirection == PlayerDirection::IN) {
-            wasCollision = lg.incrPlayerSlice(playerVerticalSpeed);
+        if (absoluteControls) {
+            bool wasCollision = false;
+            if (playerDirection == PlayerDirection::IN) {
+                wasCollision = lg.incrPlayerSlice(playerVerticalSpeed);
+            }
+            else if (playerDirection == PlayerDirection::OUT) {
+                wasCollision = lg.incrPlayerSlice(-playerVerticalSpeed);
+            }
+            else if (playerDirection == PlayerDirection::CCW) {
+                wasCollision = lg.incrPlayerPosition(-playerHorizontalSpeed);
+            }
+            else if (playerDirection == PlayerDirection::CW) {
+                wasCollision = lg.incrPlayerPosition(playerHorizontalSpeed);
+            }
+
+            if (wasCollision) {
+                PlaySound(bump);
+                playerDirection = PlayerDirection::NONE;
+            }
         }
-        else if (playerDirection == PlayerDirection::OUT) {
-            wasCollision = lg.incrPlayerSlice(-playerVerticalSpeed);
-        }
-        else if (playerDirection == PlayerDirection::CCW) {
-            wasCollision = lg.incrPlayerPosition(-playerHorizontalSpeed);
-        }
-        else if (playerDirection == PlayerDirection::CW) {
-            wasCollision = lg.incrPlayerPosition(playerHorizontalSpeed);
-        }
-        if (wasCollision) {
-            PlaySound(bump);
-            playerDirection = PlayerDirection::NONE;
+        else {
+            float vDelta = desiredPlayerVerticalSpeed - currPlayerVerticalSpeed;
+            currPlayerVerticalSpeed = currPlayerVerticalSpeed + std::max(-playerVerticalSpeed * .33f, std::min(playerVerticalSpeed * .33f, vDelta));
+            currPlayerVerticalSpeed = std::max(-playerVerticalSpeed, std::min(playerVerticalSpeed, currPlayerVerticalSpeed));
+            float hDelta = desiredPlayerHorizontalSpeed - currPlayerHorizontalSpeed;
+            currPlayerHorizontalSpeed = currPlayerHorizontalSpeed + std::max(-playerHorizontalSpeed * .33f, std::min(playerHorizontalSpeed * .33f, hDelta));
+            currPlayerHorizontalSpeed = std::max(-playerHorizontalSpeed, std::min(playerHorizontalSpeed, currPlayerHorizontalSpeed));
+
+            if (lg.incrPlayerSlice(currPlayerVerticalSpeed))
+            {
+                //currPlayerVerticalSpeed = desiredPlayerVerticalSpeed = 0.0f;
+            }
+
+            if (lg.incrPlayerPosition(currPlayerHorizontalSpeed))
+            {
+                //currPlayerHorizontalSpeed = desiredPlayerHorizontalSpeed = 0.0f;
+            }
         }
 
         if (simTick % 12 == 0) {
@@ -1251,14 +1290,21 @@ public:
     bool noKill;
     bool gameWon;
     int finalCountdown; // -1 disabled, num sims to final
-
     static bool classicControls;
+    static bool absoluteControls;
+    const float playerHorizontalSpeed = 0.75;
+    const float playerVerticalSpeed = 0.5;
+    float currPlayerHorizontalSpeed;
+    float currPlayerVerticalSpeed;
+    float desiredPlayerHorizontalSpeed;
+    float desiredPlayerVerticalSpeed;
 
     LevelTransformer transformer;
     Explosion explosion;
 };
 
-bool LevelGameState::classicControls = false;
+bool LevelGameState::classicControls = true;
+bool LevelGameState::absoluteControls = false;
 
 class TitleScreenGameState : public LevelGameState
 {
@@ -1270,7 +1316,8 @@ public:
         , titleText(WHITE, { float(GetScreenWidth()/2), float(GetScreenHeight()/4) }, "Pix'in'", 100)
         , title2Text(WHITE, { float(GetScreenWidth() / 2), float(GetScreenHeight() / 4 + 120) }, "(Ludum Dare #48)", 20)
         , instructions(WHITE, { float(GetScreenWidth() / 2), float(GetScreenHeight() - 90) }, "Space to start game. 'k' during game to disable kill wall, 'p' to pause,", 20)
-        , instructions2(WHITE, { float(GetScreenWidth() / 2), float(GetScreenHeight() - 60) }, "left/right/up/down arrows for counter-clockwise/clockwise/in/out.", 20)
+        , instructions2(WHITE, { float(GetScreenWidth() / 2), float(GetScreenHeight() - 60) }, "left/right/up/down arrows (or A/D/W/S)", 20)
+        , instructions3(WHITE, { float(GetScreenWidth() / 2), float(GetScreenHeight() - 30) }, "for counter-clockwise/clockwise/in/out.", 20)
         , level1(WHITE, { float(GetScreenWidth() / 2), float(GetScreenHeight() / 2 + 20) }, "Simple Level", 20)
         , level2(WHITE, { float(GetScreenWidth() / 2), float(GetScreenHeight() / 2 + 45) }, "Rando Maze", 20)
         , level3(WHITE, { float(GetScreenWidth() / 2), float(GetScreenHeight() / 2 + 70) }, "Rando Maze Hard (takes ~10 seconds)", 20)
@@ -1285,12 +1332,24 @@ public:
     }
 
     void Sim(float simTimeSeconds) override {
-        if (IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ENTER)) {
-            if (currLevel != 3)
+        if (currLevel < 3) {
+            if (IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ENTER)) {
                 finished = true;
-            else
-                classicControls = !classicControls;
+            }
         }
+        else
+        {
+            if (IsKeyPressed(KEY_RIGHT) || IsKeyPressed(KEY_D) ||
+                IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ENTER)) {
+                controlType = (controlType + 1) % 4;
+            }
+            else if (IsKeyPressed(KEY_LEFT) || IsKeyPressed(KEY_A)) {
+                controlType = (controlType + 3) % 4;
+            }
+        }
+        classicControls = !(controlType & 0x1);
+        absoluteControls = !(controlType & 0x2);
+
         if (IsKeyPressed(KEY_UP) || IsKeyPressed(KEY_W)) {
             currLevel = (currLevel + 3) % 4;
         }
@@ -1325,6 +1384,9 @@ public:
             controlsText.color = GREEN;
         }
 
+        controlsText.text = std::string("Controls: ") + std::string(classicControls ? "LudamDare 48 Classic" : "Direct") + std::string(absoluteControls ? "" : " **Experimental Always Move**");
+        instructions3.text = classicControls ? "for counter-clockwise/clockwise/in/out." : "to move in that direction.";
+
 
         lg.transformer = transformer;
         explosion.transform = transformer;
@@ -1336,15 +1398,10 @@ public:
         title2Text.render();
         instructions.render();
         instructions2.render();
+        instructions3.render();
         level1.render();
         level2.render();
         level3.render();
-        if (classicControls) {
-            controlsText.text = "Controls: Classic";
-        }
-        else {
-            controlsText.text = "Controls: Direct";
-        }
         controlsText.render();
         EndDrawing();
     }
@@ -1354,14 +1411,18 @@ public:
     Text title2Text;
     Text instructions;
     Text instructions2;
+    Text instructions3;
     Text controlsText;
 
     Text level1;
     Text level2;
     Text level3;
     int currLevel;
+
+    static int controlType;
 };
 
+int TitleScreenGameState::controlType = 0;
 
 
 
